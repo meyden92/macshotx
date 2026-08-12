@@ -5,20 +5,20 @@ annotate, and route screenshots through automated post-capture actions.
 
 ## Language
 
-**Capture mode**:
-The user's capture intent — Region, Window, or Fullscreen. Region and Window both present the capture overlay (Window starts with window snap armed); Fullscreen captures the entire display under the cursor.
-_Avoid_: Capture type, screenshot type
+**Capture hotkey**:
+The single global shortcut that begins a capture. It carries no intent — it always presents the capture overlay, whatever the user means to capture.
+_Avoid_: Capture shortcut, region hotkey, per-mode hotkey
 
 **Capture overlay**:
-The surface presented on every display when a Region or Window capture begins. Hosts the selection, window snap, and all annotation tools; there is no separate window-picking UI.
+The surface presented on every display when a capture begins. Hosts the selection, window snap, and all annotation tools; there is no separate window-picking UI, and no capture bypasses it.
 _Avoid_: Region picker, capture window, overlay window
 
 **Selection**:
-The adjustable rectangle inside the capture overlay that will become the captured image. Confined to a single display; committed by confirming the capture.
-_Avoid_: Region (that's a capture mode), selection rect
+The adjustable rectangle inside the capture overlay that will become the captured image. Confined to a single display; committed by confirming the capture. Seeded three ways — dragged freehand, filled to the whole display, or snapped to a window — after which it is one and the same rectangle however it began.
+_Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
-Capture-overlay behavior where hovering highlights the window under the cursor and clicking captures exactly that window. Toggleable mid-capture; respects window z-order.
+Capture-overlay behavior where hovering highlights the window under the cursor and clicking makes that window the Selection. Toggleable mid-capture; respects window z-order.
 _Avoid_: Window detection, window picking, hover-to-pick
 
 **Boundary snap**:
@@ -77,12 +77,8 @@ _Avoid_: Filters, adjustments, colour correction
 The non-image UI the capture overlay floats above the frozen screenshot — toolbar strip, tool-options row, resolution box, helper and hint cards, tooltips, floating affordances and post-processing panels — as distinct from the capture content beneath them. All of it is Liquid Glass built through one kit.
 _Avoid_: HUD, panel, controls
 
-**Window companion image**:
-The clean single-window image with transparent rounded corners kept alongside a window-snap capture, so post-processing backdrops can show through the corners.
-_Avoid_: Transparent capture, window cutout
-
 **Pipeline**:
-The ordered list of actions executed after a capture is taken. One global pipeline is configured in Settings; each capture mode may override specific steps.
+The ordered list of actions executed after a capture is taken. One pipeline is configured in Settings and runs after every capture.
 _Avoid_: Workflow, action chain
 
 **Pipeline action**:
