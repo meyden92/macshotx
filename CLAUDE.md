@@ -61,14 +61,4 @@ Pure SwiftPM — there is no Xcode project (`docs/adr/0004-swiftpm-no-xcode.md`)
 - `scripts/run.sh` — build → bundle → relaunch the app, tailing its log.
 - App version and Info.plist keys live in `scripts/bundle.sh`.
 - Dev builds sign with the local "Apple Development" cert via raw `codesign` — this works from the CLI (xcodebuild's automatic-signing auth failure no longer applies). Ad-hoc fallback makes macOS re-prompt for Screen Recording after rebuilds.
-- `scripts/release.sh` — local-only release: Developer ID + notarization + `.dmg`. No CI.
-
-## Agent skills
-
-### Issue tracker
-
-Issues live as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
-
-### Domain docs
-
-Single-context layout — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- `scripts/release.sh` — local-only release: Developer ID + notarization + `.dmg`.
