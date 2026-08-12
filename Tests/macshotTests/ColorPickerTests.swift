@@ -296,6 +296,9 @@ func thePickerOpensOnTheSelectedAnnotationsColor() {
     drag(in: view, window: window, from: CGPoint(x: 40, y: 40), to: CGPoint(x: 80, y: 80))
 
     // Back to red for the tool, so the tool default and the annotation differ.
+    // Re-picking the tool drops the selection the drag left behind, so the red
+    // moves the default instead of restyling the rectangle.
+    view.keyDown(with: key("r", 15, window))
     panel = openPicker(in: view)
     panel?.standardSwatches.first { $0.color.matchesColor(.systemRed) }?.onClick?(.systemRed)
 
