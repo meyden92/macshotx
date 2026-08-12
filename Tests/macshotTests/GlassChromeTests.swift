@@ -122,3 +122,45 @@ func aTypicalCaptureKeepsTheGlassSurfaceCountInSingleDigits() {
     #expect(surfaces > 0, "Chrome really is on glass")
     #expect(surfaces < 10, "Glass surfaces should stay in single digits, got \(surfaces)")
 }
+
+// MARK: - Contrast against the backdrop
+
+@MainActor
+private func makeOverlay() -> RegionPickerView {
+    let frame = NSRect(x: 0, y: 0, width: 200, height: 200)
+    let ctx = CGContext(
+        data: nil, width: 200, height: 200,
+        bitsPerComponent: 8, bytesPerRow: 4 * 200,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    return RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1)
+}
+
+@MainActor
+@Test
+func theOverlayPinsItsChromeToADarkAppearanceRatherThanTheSystemsOwn() {
+    let view = makeOverlay()
+    // The chrome sits over arbitrary screen content, so a Light Mode system
+    // must not make it draw dark text on glass that sampled a dark app.
+    #expect(view.effectiveAppearance.name == .darkAqua)
+    // Chrome added later inherits it, so every strip, card and readout agrees.
+    for subview in view.subviews {
+        #expect(subview.effectiveAppearance.name == .darkAqua)
+    }
+}
+
+@MainActor
+@Test
+func chromeContentResolvesLightSoItReadsOnTheDarkGlass() {
+    var neutral = CGFloat(0)
+    var secondary = CGFloat(0)
+    makeOverlay().effectiveAppearance.performAsCurrentDrawingAppearance {
+        neutral = ChromeTintRole.neutral.contentColor
+            .usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+        secondary = NSColor.secondaryLabelColor
+            .usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+    }
+    #expect(neutral > 0.5, "Label text on chrome has to be light, got \(neutral)")
+    #expect(secondary > 0.5, "and so does the secondary text, got \(secondary)")
+}
