@@ -71,6 +71,10 @@ struct MenuContent: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Tray-only: no Dock tile and no Cmd-Tab entry. LSUIElement already says
+        // so for the bundled app; this also covers an unbundled `swift run`.
+        NSApp.setActivationPolicy(.accessory)
+
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         Notifier.registerCategories()
