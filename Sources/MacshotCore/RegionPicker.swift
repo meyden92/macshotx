@@ -3548,7 +3548,6 @@ final class ToolOptionsRowView: NSView {
 
     private let height: CGFloat = 24
     private let swatchSize: CGFloat = 22
-    private let sliderWidth: CGFloat = 116
 
     init() {
         let sep = NSView()
@@ -3655,7 +3654,10 @@ final class ToolOptionsRowView: NSView {
         }
         dimSlider.onChange = { [weak self] value in self?.onDimStrengthSelected?(value) }
         for slider in [widthSlider, fontSlider, radiusSlider, magnificationSlider, dimSlider] {
-            slider.frame = NSRect(x: 0, y: 0, width: sliderWidth, height: height)
+            // Width is the slider's own business: it sizes itself around the
+            // widest readout it can show. configure() already advances by
+            // whatever that comes to.
+            slider.frame = NSRect(x: 0, y: 0, width: slider.frame.width, height: height)
             slider.onGestureBegan = { [weak self] in self?.onGestureBegan?() }
             slider.onGestureEnded = { [weak self] in self?.onGestureEnded?() }
             addSubview(slider)
@@ -3856,7 +3858,10 @@ final class OptionSlider: NSView {
         get { CGFloat(slider.doubleValue) }
         set {
             slider.doubleValue = Double(newValue)
-            valueLabel.stringValue = format(newValue)
+            // NSSlider clamps to its range; read back so the number always
+            // agrees with where the knob actually is, and stays inside the
+            // width measured for it.
+            valueLabel.stringValue = format(CGFloat(slider.doubleValue))
         }
     }
 
@@ -3871,12 +3876,21 @@ final class OptionSlider: NSView {
         }
     }
 
+    private static let trackWidth: CGFloat = 88
+    private static let gap: CGFloat = 6
+
     private let slider: TrackingSlider
     private let valueLabel: NSTextField
     private let format: (CGFloat) -> String
+    /// Wide enough for the longest string this slider can ever show. Measured
+    /// once from the format rather than tracked per value, so the track does
+    /// not jitter as the number under the cursor changes width.
+    private let readoutWidth: CGFloat
 
     init(range: ClosedRange<CGFloat>, format: @escaping (CGFloat) -> String) {
         self.format = format
+        let readout = Self.widestReadout(range: range, format: format)
+        self.readoutWidth = readout
         slider = TrackingSlider()
         slider.minValue = Double(range.lowerBound)
         slider.maxValue = Double(range.upperBound)
@@ -3886,12 +3900,14 @@ final class OptionSlider: NSView {
         valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         valueLabel.textColor = .labelColor
         valueLabel.alignment = .right
-        super.init(frame: NSRect(x: 0, y: 0, width: 116, height: 24))
+        super.init(frame: NSRect(
+            x: 0, y: 0,
+            width: Self.trackWidth + Self.gap + readout, height: 24
+        ))
 
-        slider.frame = NSRect(x: 0, y: 2, width: 88, height: 20)
-        valueLabel.frame = NSRect(x: 92, y: 4, width: 22, height: 16)
         addSubview(slider)
         addSubview(valueLabel)
+        layoutParts()
 
         slider.target = self
         slider.action = #selector(sliderMoved)
@@ -3900,6 +3916,38 @@ final class OptionSlider: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// The longest string the format can produce anywhere in the range. The
+    /// panels put the option's name in that string ("Padding 25%"), so this is
+    /// what stops the description being cut off.
+    private static func widestReadout(
+        range: ClosedRange<CGFloat>,
+        format: (CGFloat) -> String
+    ) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        let span = range.upperBound - range.lowerBound
+        let widest = stride(from: 0.0, through: 1.0, by: 0.05)
+            .map { format(range.lowerBound + span * CGFloat($0)) }
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return ceil(widest) + 2
+    }
+
+    /// The readout keeps the width it needs and the track takes the rest, so
+    /// the same control reads correctly in the options row and stretched
+    /// across a panel.
+    private func layoutParts() {
+        let track = max(40, bounds.width - readoutWidth - Self.gap)
+        slider.frame = NSRect(x: 0, y: 2, width: track, height: 20)
+        valueLabel.frame = NSRect(
+            x: track + Self.gap, y: 4, width: readoutWidth, height: 16
+        )
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutParts()
+    }
 
     @objc private func sliderMoved() {
         valueLabel.stringValue = format(value)
