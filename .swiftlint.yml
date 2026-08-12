@@ -1,0 +1,28 @@
+excluded:
+  - .build
+  - DerivedData
+  - "*.xcodeproj"
+
+opt_in_rules:
+  - empty_count
+  - sorted_imports
+  - force_unwrapping
+
+disabled_rules:
+  - trailing_comma
+  - todo
+
+line_length:
+  warning: 140
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+identifier_name:
+  excluded:
+    - id
+    - x
+    - y
+    - to
+
+reporter: "xcode"
