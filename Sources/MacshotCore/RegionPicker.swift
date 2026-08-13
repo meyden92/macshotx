@@ -19,9 +19,11 @@ final class RegionPickerView: NSView {
     var onSelectionActivity: ((Bool) -> Void)?
     var onTabPressed: (() -> Void)?
     var onFullscreenKey: (() -> Void)?
-    /// A click with no drag while idle and snap is off.
+    /// A click with no drag while idle and snap is off; the session seeds the
+    /// Selection to this display.
     var onIdleClick: (() -> Void)?
-    /// A click with no drag on a snap-highlighted window.
+    /// A click with no drag on a snap-highlighted window; the session seeds the
+    /// Selection to that window.
     var onSnapClick: ((WindowCandidate) -> Void)?
     /// Resolve the snap target for a pointer position (Cocoa global
     /// coordinates); returns the candidate plus its rect in this view's space.
@@ -115,10 +117,6 @@ final class RegionPickerView: NSView {
     /// composition on every frame of every redraw.
     private var previewComposition: CGImage?
     private var postPanel: PostProcessingPanelView?
-    /// Window snap's clean single-window image and the region it covers. When
-    /// present, beautify composites it instead of the flat capture so the
-    /// backdrop shows through the window's own rounded corners.
-    private var windowCompanion: (image: CGImage, rect: NSRect)?
     /// Whether the effects controls are showing. The values themselves live in
     /// `composition`; this is only the panel's visibility.
     private var effectsPanelOpen = false
@@ -285,6 +283,24 @@ final class RegionPickerView: NSView {
         bake(rect: rect ?? bounds)
     }
 
+    /// Seeds the Selection from a route that is not a drag: `F`, a bare click
+    /// on an idle overlay, or a click on a snapped window. What comes out is an
+    /// ordinary Selection — movable, resizable, annotatable — and confirming it
+    /// is still the only thing that captures (ADR 0011).
+    func seedSelection(_ rect: NSRect) {
+        let clamped = rect.intersection(bounds)
+        guard clamped.width >= 1, clamped.height >= 1 else { return }
+        selectionGesture = nil
+        liveSelectionRect = nil
+        selection = clamped
+        // A Selection exists now, so the highlight has nothing left to offer.
+        snapHighlight = nil
+        invalidateComposition()
+        onSelectionActivity?(true)
+        layoutChrome()
+        needsDisplay = true
+    }
+
     /// Cross-display clearing: another display took the selection.
     func clearWholeSelection() {
         selectionGesture = nil
@@ -329,9 +345,9 @@ final class RegionPickerView: NSView {
     private var suppressToolBroadcast = false
 
     /// A click that neither dragged nor did anything tool-meaningful. With
-    /// snap armed it captures the window under the click; with snap off, an
-    /// idle overlay captures its whole display (select tool only — a misclick
-    /// with a drawing tool must not commit anything).
+    /// snap armed it seeds the Selection from the window under the click; with
+    /// snap off, an idle overlay seeds it to the whole display (select tool
+    /// only — a misclick with a drawing tool must not seed anything).
     private func handleBareClick(with event: NSEvent, allowsDisplayCapture: Bool) {
         guard requiresSelection else { return }
         if snapArmed {
@@ -873,24 +889,6 @@ final class RegionPickerView: NSView {
     /// confirm — that does not need it.
     var isBeautifying: Bool { composition.beautify.enabled }
 
-    /// Installs Window snap's shadow-free companion image for a region. Only
-    /// beautify consumes it: with beautify off the flat capture is still what a
-    /// window capture produces, exactly as before.
-    func setWindowCompanion(_ image: CGImage?, for rect: NSRect) {
-        windowCompanion = image.map { (image: $0, rect: rect) }
-        invalidateComposition()
-        postPanel?.configure(composition.beautify, carriesOwnFrame: windowCompanion != nil)
-    }
-
-    /// True when the source carries its own corners and title bar, so the
-    /// compositor must not add either.
-    private func companionSource(for rect: NSRect) -> CGImage? {
-        guard composition.beautify.enabled, let windowCompanion,
-              windowCompanion.rect == rect
-        else { return nil }
-        return windowCompanion.image
-    }
-
     /// What post-processing applies to: the Selection, or — in the detached
     /// editor, where no crop means the whole image — everything.
     private var postProcessingRect: NSRect? {
@@ -988,9 +986,7 @@ final class RegionPickerView: NSView {
             addSubview(panel)
             postPanel = panel
         }
-        postPanel?.configure(
-            composition.beautify, carriesOwnFrame: windowCompanion != nil
-        )
+        postPanel?.configure(composition.beautify)
         positionPostPanel()
     }
 
@@ -1108,7 +1104,7 @@ final class RegionPickerView: NSView {
         else { return nil }
         let previewScale = CGFloat(capture.width) / rect.width
         let image = PostProcessingCompositor.render(
-            capture, settings: beautifySettings(for: rect), scale: previewScale
+            capture, settings: composition.beautify, scale: previewScale
         )
         previewComposition = image
         return image
@@ -2618,9 +2614,7 @@ final class RegionPickerView: NSView {
             CGRect(x: 0, y: 0, width: frozen.width, height: frozen.height)
         )
         guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
-        // The window companion is already exactly the window, corners and all.
-        guard var source = companionSource(for: rect) ?? frozen.cropping(to: pixelRect)
-        else { return nil }
+        guard var source = frozen.cropping(to: pixelRect) else { return nil }
 
         // ADR 0003: the Core Image pass runs on this crop, never on the whole
         // frozen screen, and never at more than the working size it needs.
@@ -2689,20 +2683,8 @@ final class RegionPickerView: NSView {
         guard let capture = captureImage(rect: rect) else { return nil }
         // Preview and bake share this call; only the pixel scale differs.
         return PostProcessingCompositor.render(
-            capture, settings: beautifySettings(for: rect), scale: scale
+            capture, settings: composition.beautify, scale: scale
         )
-    }
-
-    /// The beautify settings as the compositor should see them for `rect`: on
-    /// the window-companion path the source already carries its own corners and
-    /// title bar, so those two stages are dropped rather than applied twice.
-    private func beautifySettings(for rect: NSRect) -> BeautifySettings {
-        var settings = composition.beautify
-        if companionSource(for: rect) != nil {
-            settings.cornerRadius = 0
-            settings.windowFrame = false
-        }
-        return settings
     }
 
     // MARK: Drawing

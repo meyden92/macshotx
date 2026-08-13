@@ -93,6 +93,10 @@ When the user reports a bug that is not relevant to the current implementation t
 
 Issues live in this repo's GitHub Issues. See `docs/agents/issue-tracker.md`.
 
+### Working on issues
+When working on a implementation for an issue - Read the full epic on github, change the label to "Doing" and work on it on a separate branch.
+When done: Create a Pull Request and change the label to "testing" and instruct the user on how to test out the changes.
+
 ### Domain docs
 
 Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

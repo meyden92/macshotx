@@ -8,10 +8,6 @@ struct CaptureArtifact {
     /// Frontmost app / window title at trigger time, for %app / %window tokens.
     let appName: String?
     let windowTitle: String?
-    /// Window snap only: a clean single-window image with transparent rounded
-    /// corners, captured shadow-free at commit time. Nothing in the pipeline
-    /// consumes it yet — phase 6 (beautify) is the consumer.
-    var companionImage: CGImage? = nil
     /// Set by the overlay from its composition state rather than by scanning
     /// pixels — deterministic, O(1), and honest about intent. The pipeline uses
     /// it to pick a format that can actually store what was made.

@@ -219,10 +219,6 @@ struct CaptureSettingsTab: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
-            Toggle(
-                "Include window shadow in window captures",
-                isOn: store.binding(\.capture.includeWindowShadow)
-            )
         }
         .padding(20)
     }

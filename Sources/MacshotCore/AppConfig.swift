@@ -359,7 +359,6 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     var format = ImageFormat.png
     /// 1–100, applies to jpeg/heic only.
     var quality = 90
-    var includeWindowShadow = true
     /// Training-wheel chrome in the capture overlay: the idle helper card and
     /// the selecting-state hint.
     var showOverlayHints = true
@@ -367,7 +366,7 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case saveDirectory, format, quality, includeWindowShadow, showOverlayHints
+        case saveDirectory, format, quality, showOverlayHints
     }
 
     init(from decoder: Decoder) throws {
@@ -375,7 +374,6 @@ struct CaptureSettings: Equatable, Codable, Sendable {
         saveDirectory = c.decodeOr(.saveDirectory, "~/Pictures/macshot")
         format = c.decodeOr(.format, .png)
         quality = min(100, max(1, c.decodeOr(.quality, 90)))
-        includeWindowShadow = c.decodeOr(.includeWindowShadow, true)
         showOverlayHints = c.decodeOr(.showOverlayHints, true)
     }
 }

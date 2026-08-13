@@ -1,38 +1,5 @@
 import CoreGraphics
 
-/// How a capture overlay commit was produced. The route — never the hotkey
-/// that opened the overlay — determines the capture mode recorded on the
-/// artifact, so per-mode pipeline overrides follow what the user did.
-enum OverlayCommitRoute: Equatable, Sendable {
-    /// A dragged (or anchored) selection rectangle.
-    case dragSelection
-    /// A click on a snap-highlighted window.
-    case windowSnap
-    /// A click with no drag while snap is off: that whole display.
-    case displayClick
-    /// `F` on an idle overlay: the display under the cursor.
-    case fullscreenKey
-
-    var captureMode: CaptureMode {
-        switch self {
-        case .dragSelection: return .region
-        case .windowSnap: return .window
-        case .displayClick, .fullscreenKey: return .fullscreen
-        }
-    }
-}
-
-/// What a commit route needs at bake time. Carried through the model so a
-/// commit held for a pending image keeps its payload in one place.
-enum OverlayCommitPayload: Equatable {
-    /// The selection rectangle, in the owning display's view points.
-    case drag(CGRect)
-    /// The snapped window.
-    case window(WindowCandidate)
-    /// The owning display's whole surface (click with snap off, or `F`).
-    case wholeDisplay
-}
-
 /// Cross-display state of one capture overlay session, expressed as a value
 /// with transition functions so the rules can be exercised without presenting
 /// a window. Displays are identified by index. The session resolves exactly
@@ -44,10 +11,13 @@ struct CaptureSessionModel: Equatable {
         case cancelled
     }
 
+    /// A confirmed Selection waiting for its display's frozen image. Confirming
+    /// a Selection is the only way to commit, so a rectangle is the whole of it
+    /// (ADR 0011).
     struct HeldCommit: Equatable {
         var display: Int
-        var route: OverlayCommitRoute
-        var payload: OverlayCommitPayload
+        /// The Selection, in the owning display's view points.
+        var rect: CGRect
     }
 
     private(set) var snapArmed: Bool
@@ -94,9 +64,7 @@ struct CaptureSessionModel: Equatable {
         case ignored
     }
 
-    mutating func requestCommit(
-        on display: Int, route: OverlayCommitRoute, payload: OverlayCommitPayload
-    ) -> CommitDisposition {
+    mutating func requestCommit(on display: Int, rect: CGRect) -> CommitDisposition {
         guard resolution == .pending, heldCommit == nil,
               imageReady.indices.contains(display)
         else { return .ignored }
@@ -104,7 +72,7 @@ struct CaptureSessionModel: Equatable {
             resolution = .committed
             return .perform
         }
-        heldCommit = HeldCommit(display: display, route: route, payload: payload)
+        heldCommit = HeldCommit(display: display, rect: rect)
         return .held
     }
 
@@ -137,16 +105,18 @@ enum HelperCard {
         let status: String
     }
 
+    /// Every route seeds the Selection, so the card says "select", never
+    /// "capture": nothing here takes a screenshot on its own (ADR 0011).
     static func content(snapArmed: Bool, suppressed: Bool) -> Content? {
         guard !suppressed else { return nil }
         if snapArmed {
             return Content(
-                instruction: "Click a window to capture it · drag an area · F for fullscreen",
+                instruction: "Click a window to select it · drag an area · F for fullscreen",
                 status: "Window snap: ON (Tab)"
             )
         }
         return Content(
-            instruction: "Drag an area to capture it · F for fullscreen",
+            instruction: "Drag to select · F for fullscreen · Tab for window selection",
             status: "Window snap: OFF (Tab)"
         )
     }

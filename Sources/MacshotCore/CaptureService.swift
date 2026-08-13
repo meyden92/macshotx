@@ -28,7 +28,6 @@ enum CaptureService {
                 mode: commit.mode,
                 appName: commit.appName,
                 windowTitle: commit.windowTitle,
-                companionImage: commit.companionImage,
                 mayContainTransparency: commit.mayContainTransparency
             ))
         case .cancelled:

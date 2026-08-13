@@ -9,13 +9,14 @@ product specification.
 
 ## Features
 
-- **Region capture with overlay annotation** — the screen freezes, you draw
-  arrows, shapes, text, callouts, step markers, blur/pixelate/solid redactions
-  *before* selecting the region, then crop and go. Undo/redo, per-annotation
-  move/resize, per-tool styles that persist across sessions.
-- **Window capture** (hover-to-pick, optional shadow) and **fullscreen capture**.
-- **Post-capture editor** for window/fullscreen modes with the same toolset
-  plus rectangular crop.
+- **One capture overlay** — the screen freezes on every display, and you drag a
+  selection, press `F` for the whole display, or Tab to snap to a window. All
+  three land on the same adjustable selection with the annotation tools up:
+  arrows, shapes, text, callouts, step markers, blur/pixelate/solid redactions,
+  drawn before or after you pick the area. Confirming is what captures.
+  Undo/redo, per-annotation move/resize, per-tool styles that persist across
+  sessions.
+- **Post-capture editor** with the same toolset plus rectangular crop.
 - **Pipeline automation** — an ordered, per-mode-overridable action list runs
   after every capture: open in editor, copy image, save to disk, upload,
   copy URL, run shell command, open in app, extract text (OCR). Failures halt

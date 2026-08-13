@@ -188,7 +188,7 @@ func escapeDeselectsBeforeItCancels() {
 
 @MainActor
 @Test
-func idleClickWithSnapOffCommitsTheDisplay() {
+func idleClickWithSnapOffAsksTheSessionToSeedTheDisplay() {
     let (view, window) = makeOverlayView(image: makeImage())
     var idleClicks = 0
     view.onIdleClick = { idleClicks += 1 }
@@ -200,7 +200,7 @@ func idleClickWithSnapOffCommitsTheDisplay() {
 
 @MainActor
 @Test
-func clickAfterAnnotationsDoesNotCommitTheDisplay() {
+func clickAfterAnnotationsDoesNotSeedTheDisplay() {
     let (view, window) = makeOverlayView(image: makeImage())
     var idleClicks = 0
     view.onIdleClick = { idleClicks += 1 }
@@ -215,7 +215,7 @@ func clickAfterAnnotationsDoesNotCommitTheDisplay() {
 
 @MainActor
 @Test
-func snapArmedClickCapturesTheHighlightedWindow() {
+func snapArmedClickAsksTheSessionToSeedTheHighlightedWindow() {
     let (view, window) = makeOverlayView(image: makeImage())
     let target = WindowCandidate(
         id: 42, frame: CGRect(x: 0, y: 0, width: 200, height: 200),
@@ -269,6 +269,90 @@ func snapDisarmClearsTheHighlightAndDragStillSelects() {
     drag(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 60, y: 60), view: view, window: window)
     view.keyDown(with: key("\r", 36, window))
     #expect(requested == NSRect(x: 10, y: 10, width: 50, height: 50))
+}
+
+// MARK: - Seeded selections
+
+@MainActor
+@Test
+func seedingProducesASelectionAndCapturesNothingUntilItIsConfirmed() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    var activity: [Bool] = []
+    view.onCommitRequested = { requested = $0 }
+    view.onSelectionActivity = { activity.append($0) }
+
+    // What `F` and a bare display click both come down to: the whole display.
+    view.seedSelection(view.bounds)
+    #expect(requested == nil, "Seeding must not capture")
+    #expect(activity == [true], "The display owns the Selection now")
+    // No longer idle, so `F` goes back to meaning the fill-rect tool.
+    #expect(!view.isIdle)
+
+    view.keyDown(with: key("\r", 36, window))
+    #expect(requested == NSRect(x: 0, y: 0, width: 200, height: 200))
+}
+
+@MainActor
+@Test
+func aSeededSelectionMovesResizesAndAnnotatesLikeADraggedOne() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+
+    // A window-snap-shaped seed, well inside the display.
+    view.seedSelection(NSRect(x: 40, y: 40, width: 100, height: 100))
+
+    // Grab the edge band (clear of the handles) and move it 10pt right and down.
+    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 110, y: 42), view: view, window: window))
+    view.mouseDragged(with: mouse(.leftMouseDragged, at: CGPoint(x: 120, y: 52), view: view, window: window))
+    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 120, y: 52), view: view, window: window))
+
+    // Resize by its bottom-right corner handle.
+    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 150, y: 150), view: view, window: window))
+    view.mouseDragged(with: mouse(.leftMouseDragged, at: CGPoint(x: 170, y: 170), view: view, window: window))
+    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 170, y: 170), view: view, window: window))
+
+    // And annotate inside it.
+    view.keyDown(with: key("r", 15, window))
+    drag(from: CGPoint(x: 70, y: 70), to: CGPoint(x: 110, y: 110), view: view, window: window)
+    #expect(view.annotations.count == 1)
+
+    view.keyDown(with: key("\r", 36, window))
+    #expect(requested == NSRect(x: 50, y: 50, width: 120, height: 120))
+}
+
+@MainActor
+@Test
+func seedingIsClampedToTheDisplayAndIgnoredWhenItMissesEntirely() {
+    let (view, _) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+
+    // A window hanging off the right edge seeds only the part on this display.
+    view.seedSelection(NSRect(x: 150, y: 20, width: 200, height: 60))
+    view.keyDown(with: key("\r", 36, view.window!))
+    #expect(requested == NSRect(x: 150, y: 20, width: 50, height: 60))
+
+    // One that lies on another display entirely leaves this overlay idle.
+    let (other, _) = makeOverlayView(image: makeImage())
+    other.seedSelection(NSRect(x: 400, y: 400, width: 100, height: 100))
+    #expect(other.isIdle)
+}
+
+@MainActor
+@Test
+func cancellingAfterSeedingCapturesNothing() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    var cancelled = 0
+    view.onCommitRequested = { requested = $0 }
+    view.onCancel = { cancelled += 1 }
+
+    view.seedSelection(view.bounds)
+    view.keyDown(with: key("\u{1b}", 53, window))
+    #expect(cancelled == 1)
+    #expect(requested == nil)
 }
 
 // MARK: - Idle helper card
