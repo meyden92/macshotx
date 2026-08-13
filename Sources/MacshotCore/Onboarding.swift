@@ -8,8 +8,11 @@ import UserNotifications
 enum OnboardingController {
     private static var window: NSWindow?
 
+    /// Shown on every launch until the user finishes or skips it, so granting
+    /// Screen Recording and relaunching resumes setup instead of dropping the
+    /// user into a half-configured app with no way back in.
     static func showIfNeeded() {
-        guard ConfigStore.shared.isFirstRun else { return }
+        guard !ConfigStore.shared.config.general.setupCompleted else { return }
         show()
     }
 
@@ -40,13 +43,27 @@ enum OnboardingController {
 struct OnboardingView: View {
     let onFinish: () -> Void
     @ObservedObject private var store = ConfigStore.shared
-    @State private var page = 0
+    @State private var page: Int
     @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
     private let pageCount = 4
 
     init(onFinish: @escaping () -> Void) {
         self.onFinish = onFinish
+        _page = State(initialValue: ConfigStore.shared.config.general.setupPage ?? 0)
+    }
+
+    /// Each step is recorded as it is reached, which is what survives the
+    /// relaunch the permissions page asks for.
+    private func go(to next: Int) {
+        page = next
+        store.update { $0.general.setupPage = next }
+    }
+
+    /// Setup ends only when the user says so, by finishing or skipping.
+    private func finish() {
+        store.update { $0.general.setupPage = nil }
+        onFinish()
     }
 
     var body: some View {
@@ -62,19 +79,19 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             HStack {
-                Button("Skip") { onFinish() }
+                Button("Skip") { finish() }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if page > 0 {
-                    Button("Back") { page -= 1 }
+                    Button("Back") { go(to: page - 1) }
                 }
                 if page < pageCount - 1 {
-                    Button("Continue") { page += 1 }
+                    Button("Continue") { go(to: page + 1) }
                         .keyboardShortcut(.defaultAction)
                 } else {
                     Button("Try It Now") {
-                        onFinish()
+                        finish()
                         Task { await CaptureService.captureOverlay() }
                     }
                     .keyboardShortcut(.defaultAction)

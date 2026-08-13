@@ -336,8 +336,11 @@ final class ColorWellButton: NSView {
     var onClick: (() -> Void)?
     var color: NSColor = .systemRed { didSet { needsDisplay = true } }
 
-    init() {
+    /// A swatch is pure colour with no label, so the tooltip is the only thing
+    /// saying which colour it stands for.
+    init(tooltip: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        toolTip = tooltip
     }
 
     required init?(coder: NSCoder) { nil }

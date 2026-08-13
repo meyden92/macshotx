@@ -260,11 +260,21 @@ struct GeneralSettings: Equatable, Codable, Sendable {
     var captureFeedbackEnabled = true
     var launchAtLogin = false
     var colorFormat = ColorOutputFormat.hex
+    /// Which page of the first-run wizard to resume on, or nil once setup is
+    /// over. The wizard writes this itself — completion is never inferred from
+    /// the app having launched — so quitting mid-setup to grant a permission
+    /// comes back to the same step. A config that predates the field has no
+    /// value and is left alone: those users already went through setup.
+    var setupPage: Int?
+
+    /// Setup counts as done only once the user finished or skipped the wizard.
+    var setupCompleted: Bool { setupPage == nil }
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
         case notificationsEnabled, captureFeedbackEnabled, launchAtLogin, colorFormat
+        case setupPage
     }
 
     init(from decoder: Decoder) throws {
@@ -273,6 +283,9 @@ struct GeneralSettings: Equatable, Codable, Sendable {
         captureFeedbackEnabled = c.decodeOr(.captureFeedbackEnabled, true)
         launchAtLogin = c.decodeOr(.launchAtLogin, false)
         colorFormat = c.decodeOr(.colorFormat, .hex)
+        setupPage = (try? c.decodeIfPresent(Int.self, forKey: .setupPage))
+            .flatMap { $0 }
+            .map { max(0, $0) }
     }
 }
 

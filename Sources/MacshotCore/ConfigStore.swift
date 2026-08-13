@@ -9,7 +9,7 @@ final class ConfigStore: ObservableObject {
     @Published private(set) var config: AppConfig
 
     let configURL: URL
-    /// True when no config file existed at launch (drives onboarding).
+    /// True when no config file existed at launch (seeds the setup wizard).
     let isFirstRun: Bool
 
     init(directory: URL? = nil) {
@@ -18,7 +18,12 @@ final class ConfigStore: ObservableObject {
             .appendingPathComponent("macshot", isDirectory: true)
         self.configURL = dir.appendingPathComponent("config.json")
         self.isFirstRun = !FileManager.default.fileExists(atPath: configURL.path)
-        self.config = Self.load(from: configURL)
+        var loaded = Self.load(from: configURL)
+        // A fresh install owes the user the wizard, so its progress starts at
+        // the first page. Any existing config keeps whatever the wizard last
+        // wrote — including nothing at all, which means setup is behind them.
+        if isFirstRun { loaded.general.setupPage = 0 }
+        self.config = loaded
     }
 
     func update(_ mutate: (inout AppConfig) -> Void) {
