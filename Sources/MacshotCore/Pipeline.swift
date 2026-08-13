@@ -203,7 +203,7 @@ struct PipelineRunner {
             let config = store.config.capture
             let data = try ImageEncoder.encode(
                 outcome.image,
-                format: config.format,
+                format: outputFormat,
                 quality: config.quality
             )
             let filename = try resolveName(artifact: artifact, outcome: &outcome)
@@ -258,6 +258,11 @@ struct PipelineRunner {
         }
     }
 
+    /// The one place the output format is resolved, so the encode call and the
+    /// filename's extension can never disagree and write JPEG bytes into a
+    /// `.png`.
+    private var outputFormat: ImageFormat { store.config.capture.format }
+
     // MARK: - Filenames and files
 
     /// Expand the filename template once per pipeline run (subsequent actions
@@ -287,7 +292,7 @@ struct PipelineRunner {
         if !literalExtension.isEmpty {
             expanded = String(expanded.dropLast(literalExtension.count))
         }
-        expanded += ".\(store.config.capture.format.fileExtension)"
+        expanded += ".\(outputFormat.fileExtension)"
 
         outcome.expandedName = expanded
         return expanded
@@ -303,7 +308,7 @@ struct PipelineRunner {
     ) throws -> URL {
         let config = store.config.capture
         let data = try ImageEncoder.encode(
-            image, format: store.config.capture.format, quality: config.quality
+            image, format: outputFormat, quality: config.quality
         )
         let name = try resolveName(artifact: artifact, outcome: &outcome)
 

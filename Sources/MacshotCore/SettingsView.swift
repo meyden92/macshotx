@@ -239,13 +239,16 @@ struct CaptureSettingsTab: View {
 
             Section("Watermark") {
                 Toggle("Add a watermark to every capture", isOn: store.binding(\.capture.watermark.enabled))
-                // Everything below is the watermark's shape, greyed out while
-                // it is off — but never the toggle that turns it back on.
+                // Configuring a logo is deliberately not gated on the toggle:
+                // picking one first and switching it on after is the natural
+                // order, and the logo survives switching it back off.
+                HStack {
+                    TextField("Logo image", text: store.binding(\.capture.watermark.imagePath))
+                    Button("Choose…") { chooseLogo() }
+                }
+                // Its placement is greyed out while it is off — but never the
+                // toggle that turns it back on.
                 Group {
-                    HStack {
-                        TextField("Logo image", text: store.binding(\.capture.watermark.imagePath))
-                        Button("Choose…") { chooseLogo() }
-                    }
                     Picker("Position", selection: store.binding(\.capture.watermark.corner)) {
                         ForEach(WatermarkCorner.allCases, id: \.self) { corner in
                             Text(corner.label).tag(corner)

@@ -62,6 +62,29 @@ func squaringKeepsTheDragsDirectionAndItsLongerSide() {
 }
 
 @Test
+func clampingAConstrainedEndpointKeepsItOnItsRay() {
+    let bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
+
+    // A 45° drag that overshoots the right edge: clamping x and y separately
+    // would leave it at (200, 300) — off the ray, and no longer 45°.
+    let clamped = ShiftConstraint.clamped(
+        CGPoint(x: 300, y: 300), from: CGPoint(x: 50, y: 50), within: bounds
+    )
+    expectClose(clamped, CGPoint(x: 200, y: 200), "pulled back along the ray")
+
+    // Inside the bounds nothing moves.
+    let inside = CGPoint(x: 150, y: 120)
+    expectClose(ShiftConstraint.clamped(inside, from: CGPoint(x: 50, y: 50), within: bounds),
+                inside, "an endpoint already inside is left alone")
+
+    // A shallow ray leaves by the correct edge, keeping its slope.
+    let shallow = ShiftConstraint.clamped(
+        CGPoint(x: 400, y: 150), from: CGPoint(x: 0, y: 100), within: bounds
+    )
+    expectClose(shallow, CGPoint(x: 200, y: 125), "same slope, stopped at the edge it reaches first")
+}
+
+@Test
 func aDegenerateDragProducesNothingRatherThanCrashing() {
     #expect(ShiftConstraint.squared(from: origin, to: origin) == CGRect(origin: origin, size: .zero))
     expectClose(ShiftConstraint.angleSnapped(origin, anchoredAt: origin), origin,

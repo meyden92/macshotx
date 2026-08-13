@@ -1970,8 +1970,9 @@ final class RegionPickerView: NSView {
         current: CGPoint,
         constrained: Bool
     ) -> Annotation {
-        // Only the two shapes Shift has an opinion about are constrained: a
-        // freehand stroke, a loupe or a callout follows the cursor either way.
+        // Two constrained shapes, picked from per case below: a directional
+        // endpoint on a 45° ray, and a squared rectangle. Freehand strokes,
+        // loupes and callouts take neither and follow the cursor as they are.
         let directed = constrained
             ? ShiftConstraint.angleSnapped(current, anchoredAt: start)
             : current
@@ -2002,8 +2003,11 @@ final class RegionPickerView: NSView {
         case let .measure(from, _, style):
             // Shift forces the angle; without it the measure's own tolerance
             // snap still offers the axis when the drag is nearly on it.
+            // Along the ray, not per axis: a measurement is the one directional
+            // kind confined to this display, and an independent clamp would
+            // take a 45° endpoint off its ray.
             let end = constrained
-                ? clampedToBounds(directed)
+                ? ShiftConstraint.clamped(directed, from: from, within: bounds)
                 : measureEndpoint(current, anchoredAt: from)
             return .measure(from: from, to: end, style)
         case let .loupe(source, sourceRadius, _, _, style):
@@ -2593,10 +2597,9 @@ final class RegionPickerView: NSView {
     }
 
     /// The capture as pixels, before any beautify staging: the crop of the
-    /// frozen image with image effects applied, then the annotations drawn
-    /// over it. That order is the spec's, and it is why
-    /// effects never touch a red arrow and why annotations are later clipped by
-    /// the corner radius.
+    /// frozen image with image effects applied, then the annotations drawn over
+    /// it. That order is the spec's, and it is why effects never touch a red
+    /// arrow and why annotations are later clipped by the corner radius.
     ///
     /// `previewBound` caps the working size so a slider drag composes from a
     /// small image; the bake passes nil and works at full capture resolution.

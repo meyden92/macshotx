@@ -70,8 +70,12 @@ The decorative surface — solid colour, linear gradient or mesh gradient — a 
 _Avoid_: Background, wallpaper, canvas
 
 **Composition**:
-The composited result of the capture plus its post-processing — the single image the pipeline receives when a capture is confirmed.
+The composited result of the capture plus its post-processing, produced when a capture is confirmed. The Watermark is stamped onto it afterwards, so what the pipeline receives is the Composition only when no watermark is configured.
 _Avoid_: Output, final image, render
+
+**Watermark**:
+A configured logo stamped into a corner of every capture on its way to the pipeline. Not post-processing and not an annotation: it is a settings-level constant, never previewed in the capture overlay and not removable per capture. Size and margin are percentages of the capture's width, so one setting looks the same at any capture size.
+_Avoid_: Logo overlay, branding, stamp
 
 **Image effects**:
 The non-destructive brightness, contrast, saturation and sharpness adjustment of the capture content. Applies to the capture only: never to annotations, never to the backdrop.

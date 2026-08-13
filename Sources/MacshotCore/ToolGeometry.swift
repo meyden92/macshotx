@@ -234,6 +234,22 @@ enum ShiftConstraint {
         return CGPoint(x: anchor.x + unit.x * along, y: anchor.y + unit.y * along)
     }
 
+    /// The furthest point along the `anchor` → `point` ray that still lies
+    /// inside `bounds`. Clamping x and y independently would pull the endpoint
+    /// off the ray — which, for a constrained drag, means silently drawing a
+    /// stroke that is no longer at 45°.
+    static func clamped(_ point: CGPoint, from anchor: CGPoint, within bounds: CGRect) -> CGPoint {
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        var scale: CGFloat = 1
+        if dx > 0 { scale = min(scale, (bounds.maxX - anchor.x) / dx) }
+        if dx < 0 { scale = min(scale, (bounds.minX - anchor.x) / dx) }
+        if dy > 0 { scale = min(scale, (bounds.maxY - anchor.y) / dy) }
+        if dy < 0 { scale = min(scale, (bounds.minY - anchor.y) / dy) }
+        scale = max(0, scale)
+        return CGPoint(x: anchor.x + dx * scale, y: anchor.y + dy * scale)
+    }
+
     /// The square a drag from `anchor` to `point` makes: the longer of the two
     /// spans on both sides, growing in the direction dragged so the shape never
     /// flips across the anchor. Same convention as the Selection's own

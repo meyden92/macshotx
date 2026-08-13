@@ -12,6 +12,6 @@ The capture overlay's undo history lives in `AnnotationDocument` (`AnnotationDoc
 
 - Every annotation mutation must go through the document (`insert`/`remove`/`replace`, or `updateLive` + `commitChange` for drags). Mutating the annotation list any other way is the failure mode that would quietly reintroduce unrecorded, un-undoable edits — the exact problem this rework removed.
 - Redo invalidation is owned by the document (recording any step clears the redo stack); no call site manages it.
-- Nothing outside the entry kinds inspects an entry's annotation identifier, so a later whole-image entry kind (phase 6's flips and background removal) joins the same step/stack/grouping machinery without redesign.
+- Nothing outside the entry kinds inspects an entry's annotation identifier, so a later whole-image entry kind (phase 6's flips and background removal) joins the same step/stack/grouping machinery without redesign. _Amended by #8 (2026-08-13): background removal was dropped and its `imageTransform` entry kind with it, so no whole-image entry kind exists today. The property this claims — that one can be added without redesign — is untested until the next one arrives._
 - Annotations gained a stable identity assigned at insertion and `Annotation` gained `Equatable` — identity so history entries and the overlay's selection survive undo reordering the list, equality so a drag that ends where it started records nothing.
 - Step marker numbering derives from the annotations currently in the document, so undo frees a marker's number and redo takes it back.

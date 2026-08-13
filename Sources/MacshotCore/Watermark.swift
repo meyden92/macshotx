@@ -54,20 +54,47 @@ enum Watermark {
         )
         guard target.width >= 1, target.height >= 1 else { return image }
 
-        guard let ctx = CGContext(
-            data: nil,
-            width: image.width,
-            height: image.height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return image }
+        guard let ctx = context(for: image) else {
+            // Nothing is worth losing the capture over, but a watermark the
+            // user configured and does not get has to leave a trace.
+            Log.error("Watermark skipped: no drawing context for this capture")
+            return image
+        }
 
         ctx.draw(image, in: CGRect(origin: .zero, size: canvas))
         ctx.setAlpha(CGFloat(settings.opacityPercent) / 100)
         ctx.draw(logo, in: target)
-        return ctx.makeImage() ?? image
+        guard let marked = ctx.makeImage() else {
+            Log.error("Watermark skipped: the composite produced no image")
+            return image
+        }
+        return marked
+    }
+
+    /// An 8-bit premultiplied context matching the capture. Not every colour
+    /// space can back one — a grayscale or wide-gamut float capture cannot — so
+    /// sRGB is the fallback rather than giving up on the watermark.
+    private static func context(for image: CGImage) -> CGContext? {
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let spaces = [
+            image.colorSpace,
+            CGColorSpace(name: CGColorSpace.sRGB),
+            CGColorSpaceCreateDeviceRGB()
+        ]
+        for space in spaces.compactMap({ $0 }) {
+            if let ctx = CGContext(
+                data: nil,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: space,
+                bitmapInfo: bitmapInfo
+            ) {
+                return ctx
+            }
+        }
+        return nil
     }
 
     private static func loadLogo(_ path: String) -> CGImage? {

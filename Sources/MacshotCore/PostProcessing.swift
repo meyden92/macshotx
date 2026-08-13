@@ -246,9 +246,9 @@ enum PostProcessingCompositor {
 
     /// Stages 5–7 of the composition order: the corner-radius clip and optional
     /// window frame, the drop shadow, and the composite onto the backdrop.
-    /// Earlier stages — effects, annotations — are already
-    /// in `source` by the time it gets here, which is exactly why annotations
-    /// are clipped by the corner radius and effects never touch the backdrop.
+    /// Earlier stages — effects, annotations — are already in `source` by the
+    /// time it gets here, which is exactly why annotations are clipped by the
+    /// corner radius and effects never touch the backdrop.
     @MainActor
     static func render(
         _ source: CGImage, settings: BeautifySettings, scale: CGFloat
