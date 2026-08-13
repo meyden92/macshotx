@@ -1951,6 +1951,15 @@ final class RegionPickerView: NSView {
         }
         updateSnapHighlight(atWindowPoint: event.locationInWindow)
         if let toolbar, toolbar.frame.contains(point) { return }
+        updateCursor(at: point, modifiers: event.modifierFlags)
+    }
+
+    /// The grab cursor has to agree with what mouseDown will actually do: under
+    /// a drawing tool the drag draws, so hovering an element must still read as
+    /// "draw here" rather than promising a move. Command flips that back, which
+    /// is why flagsChanged re-runs this without the pointer having moved.
+    private func updateCursor(at point: NSPoint, modifiers: NSEvent.ModifierFlags) {
+        let manipulates = currentTool == .select || modifiers.contains(.command)
         let overElement: Bool
         if let id = selectedID, let selected = document.annotation(for: id),
            AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
@@ -1961,7 +1970,7 @@ final class RegionPickerView: NSView {
         } else {
             overElement = hitAnnotationID(at: point) != nil
         }
-        (overElement ? NSCursor.openHand : NSCursor.crosshair).set()
+        (manipulates && overElement ? NSCursor.openHand : NSCursor.crosshair).set()
     }
 
     /// With snap armed and no selection in progress, the topmost window under
@@ -2275,6 +2284,9 @@ final class RegionPickerView: NSView {
             selectionGesture = gesture
             layoutChrome()
             needsDisplay = true
+        } else if !isBeautifying, let point = lastPointerPoint,
+                  toolbar.map({ !$0.frame.contains(point) }) ?? true {
+            updateCursor(at: point, modifiers: event.modifierFlags)
         }
         super.flagsChanged(with: event)
     }
