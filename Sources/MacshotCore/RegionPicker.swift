@@ -1641,7 +1641,8 @@ final class RegionPickerView: NSView {
         // and stays armed: the key is still held, so the user can sweep on and
         // take another span.
         if let preview = autoMeasure?.preview {
-            document.insert(preview)
+            selectedIDs = [document.insert(preview)]
+            refreshToolOptions()
             needsDisplay = true
             return
         }
@@ -1875,9 +1876,12 @@ final class RegionPickerView: NSView {
                 calloutAnchor: anchor
             )
         } else if let draft = draftAnnotation, isMeaningful(draft) {
-            document.insert(settled(draft))
+            // What was just drawn stays selected, so a tool option changed
+            // straight afterwards lands on it instead of only on the next one.
+            selectedIDs = [document.insert(settled(draft))]
             draftAnnotation = nil
             dragStart = nil
+            refreshToolOptions()
         } else {
             let discardedToolClick = draftAnnotation != nil
             draftAnnotation = nil
@@ -2569,9 +2573,13 @@ final class RegionPickerView: NSView {
             // Re-edit keeps the annotation's own style and geometry; only the
             // words changed.
             document.replace(editedID, with: reContented(existing, content: content))
+            selectedIDs = [editedID]
         } else {
-            document.insert(updated)
+            selectedIDs = [document.insert(updated)]
         }
+        // Just-typed words are still the active element, so the size and colour
+        // controls act on them rather than on the next label.
+        refreshToolOptions()
         needsDisplay = true
     }
 
