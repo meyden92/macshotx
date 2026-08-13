@@ -236,8 +236,68 @@ struct CaptureSettingsTab: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
+
+            Section("Watermark") {
+                Toggle("Add a watermark to every capture", isOn: store.binding(\.capture.watermark.enabled))
+                // Everything below is the watermark's shape, greyed out while
+                // it is off — but never the toggle that turns it back on.
+                Group {
+                    HStack {
+                        TextField("Logo image", text: store.binding(\.capture.watermark.imagePath))
+                        Button("Choose…") { chooseLogo() }
+                    }
+                    Picker("Position", selection: store.binding(\.capture.watermark.corner)) {
+                        ForEach(WatermarkCorner.allCases, id: \.self) { corner in
+                            Text(corner.label).tag(corner)
+                        }
+                    }
+                    percentSlider("Size", \.capture.watermark.scalePercent, in: 1...100)
+                    percentSlider("Margin", \.capture.watermark.marginPercent, in: 0...40)
+                    percentSlider("Opacity", \.capture.watermark.opacityPercent, in: 1...100)
+                    Text("Size and margin are percentages of the capture's width, so "
+                         + "one setting looks the same on a fullscreen shot and on a "
+                         + "small crop.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(!store.config.capture.watermark.enabled)
+            }
         }
         .padding(20)
+    }
+
+    /// One row for each of the watermark's three percentages: slider, live
+    /// value, same width.
+    private func percentSlider(
+        _ label: String,
+        _ keyPath: WritableKeyPath<AppConfig, Int> & Sendable,
+        in range: ClosedRange<Double>
+    ) -> some View {
+        HStack {
+            Slider(
+                value: Binding(
+                    get: { Double(store.config[keyPath: keyPath]) },
+                    set: { value in store.update { $0[keyPath: keyPath] = Int(value) } }
+                ),
+                in: range,
+                step: 1
+            ) {
+                Text(label)
+            }
+            Text("\(store.config[keyPath: keyPath])%")
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func chooseLogo() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.png, .jpeg, .image]
+        if panel.runModal() == .OK, let url = panel.url {
+            store.update { $0.capture.watermark.imagePath = url.path }
+        }
     }
 
     private func chooseFolder() {

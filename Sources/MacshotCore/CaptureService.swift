@@ -23,8 +23,12 @@ enum CaptureService {
         switch await CaptureOverlaySession.run() {
         case .committed(let commit):
             playFeedback()
+            // Watermarked here, once: every pipeline action — and a second pass
+            // through the editor — then works on the same finished image.
             await PipelineRunner().run(CaptureArtifact(
-                image: commit.image,
+                image: Watermark.applied(
+                    to: commit.image, ConfigStore.shared.config.capture.watermark
+                ),
                 appName: commit.appName,
                 windowTitle: commit.windowTitle
             ))
