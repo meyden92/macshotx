@@ -616,7 +616,7 @@ func pixelateLivePreviewSamplesSameVisualRegion() {
         Issue.record("Couldn't create bitmap rep")
         return
     }
-    view.cacheDisplay(in: view.bounds, to: rep)
+    view.cacheDisplayWithoutChrome(to: rep)
     guard let cg = rep.cgImage,
           let data = cg.dataProvider?.data,
           let bytes = CFDataGetBytePtr(data)
@@ -626,9 +626,8 @@ func pixelateLivePreviewSamplesSameVisualRegion() {
     }
     let bpr = cg.bytesPerRow
     let imageScale = CGFloat(cg.width) / 200.0
-    // Sampled clear of the resolution box, which tracks the draft and floats
-    // over the preview; it used to be translucent dark chrome, and reads as
-    // glass now.
+    // The resolution box tracks the draft and floats over this spot, so the
+    // capture leaves the chrome out and samples the preview underneath it.
     let row = Int(25 * imageScale)
     let col = Int(50 * imageScale)
     let offset = row * bpr + col * 4
