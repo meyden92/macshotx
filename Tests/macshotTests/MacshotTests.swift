@@ -153,14 +153,15 @@ private func mouseEvent(
     atViewPoint point: CGPoint,
     in view: RegionPickerView,
     window: NSWindow,
-    clickCount: Int = 1
+    clickCount: Int = 1,
+    modifiers: NSEvent.ModifierFlags = []
 ) -> NSEvent {
     // The view is flipped (top-left). Convert top-left view point → window (bottom-left) coords.
     let windowLocation = NSPoint(x: point.x, y: view.bounds.height - point.y)
     return NSEvent.mouseEvent(
         with: kind,
         location: windowLocation,
-        modifierFlags: [],
+        modifierFlags: modifiers,
         timestamp: 0,
         windowNumber: window.windowNumber,
         context: nil,
@@ -770,43 +771,87 @@ func pixelateRendersAtImageCorners() {
     #expect(bottomRight > 80, "Bottom-right corner pixelation should render source grey, got R=\(bottomRight)")
 }
 
+/// A drag inside an existing element is how you put a smaller shape inside a
+/// redact box or a label over an arrow, so the active drawing tool owns it —
+/// hit-testing must not turn it into a move.
 @MainActor
 @Test
-func pickerGrabsAndMovesElementWhileInDrawTool() async {
+func aDragInsideAnExistingElementDrawsANewOneWhileADrawToolIsActive() {
     let (view, window) = makeHostedView()
-    var baked: CGImage?
-    view.onCommit = { baked = $0 }
 
     // Draw a black fill rect; this leaves the fill-rect tool active (no switch to select).
     drawFillRectAnnotation(in: view, window: window, rect: CGRect(x: 40, y: 40, width: 20, height: 20))
+    let placed = view.annotations
 
-    // Still in the draw tool: click inside the fill and drag it +20,+20 -> (60,60,20,20).
+    // Still in the draw tool: drag from inside the fill out to (70,70).
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 50, y: 50), in: view, window: window))
     view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window))
     view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window))
 
-    // Select a region and confirm.
-    view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
-    view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 10, y: 10), in: view, window: window))
-    view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 120, y: 120), in: view, window: window))
-    view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 120, y: 120), in: view, window: window))
-    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
-
-    guard let baked,
-          let data = baked.dataProvider?.data,
-          let bytes = CFDataGetBytePtr(data)
-    else {
-        Issue.record("No baked image")
+    #expect(view.annotations.count == 2, "The drag should have drawn a second element")
+    #expect(view.annotations.first == placed.first, "and left the one underneath where it was")
+    guard case let .fillRect(drawn, _)? = view.annotations.last else {
+        Issue.record("Expected the drag to draw a fill rect")
         return
     }
+    #expect(drawn == CGRect(x: 50, y: 50, width: 20, height: 20))
+}
 
-    // Cropped at (10,10): old centre view (50,50)->baked (40,40) should be back to
-    // source grey; new centre view (70,70)->baked (60,60) should be the black fill.
-    let bpr = baked.bytesPerRow
-    let oldSpot = bytes[40 * bpr + 40 * 4]
-    let newSpot = bytes[60 * bpr + 60 * 4]
-    #expect(oldSpot > 100, "Element should have moved away from its old spot, got R=\(oldSpot)")
-    #expect(newSpot < 100, "Element should now sit at the dragged spot, got R=\(newSpot)")
+@MainActor
+@Test
+func aBareClickStillSelectsAnElementWithoutLeavingTheDrawTool() {
+    let (view, window) = makeHostedView()
+    // A rectangle rather than a fill, so there is a stroke width to read back.
+    view.keyDown(with: keyEvent("r", keyCode: 15, window: window))
+    view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 40, y: 40), in: view, window: window))
+    view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
+    view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
+
+    // A click draws nothing, so it can still pick up what is underneath.
+    view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window))
+    view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window))
+
+    #expect(view.annotations.count == 1, "A bare click must not place anything")
+    // Selected, so the options row now restyles it rather than the tool default.
+    let row = view.subviews.compactMap { $0 as? RegionToolbarView }.first?
+        .subviews.compactMap { $0 as? ToolOptionsRowView }.first
+    row?.onLineWidthSelected?(9)
+    #expect(view.annotations.last?.style.lineWidth == 9)
+}
+
+@MainActor
+@Test
+func theSelectToolAndCommandBothStillGrabAndMoveAPlacedElement() {
+    for (label, modifiers, switchToSelect) in [
+        ("select tool", NSEvent.ModifierFlags(), true),
+        ("command held", NSEvent.ModifierFlags.command, false)
+    ] {
+        let (view, window) = makeHostedView()
+        drawFillRectAnnotation(in: view, window: window, rect: CGRect(x: 40, y: 40, width: 20, height: 20))
+        if switchToSelect {
+            view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
+        }
+
+        view.mouseDown(with: mouseEvent(
+            .leftMouseDown, atViewPoint: CGPoint(x: 50, y: 50), in: view, window: window,
+            modifiers: modifiers
+        ))
+        view.mouseDragged(with: mouseEvent(
+            .leftMouseDragged, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window,
+            modifiers: modifiers
+        ))
+        view.mouseUp(with: mouseEvent(
+            .leftMouseUp, atViewPoint: CGPoint(x: 70, y: 70), in: view, window: window,
+            modifiers: modifiers
+        ))
+
+        #expect(view.annotations.count == 1, "\(label): the drag should move, not draw")
+        guard case let .fillRect(moved, _)? = view.annotations.last else {
+            Issue.record("\(label): expected the fill rect to still be there")
+            continue
+        }
+        #expect(moved == CGRect(x: 60, y: 60, width: 20, height: 20), "\(label): moved by the drag delta")
+    }
 }
 
 @MainActor
