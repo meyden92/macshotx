@@ -22,4 +22,6 @@ dist/
 .idea/
 
 .scratch/
-/docs/
+
+# Personal (uncommitted) skill rules
+.claude/skill-context/**/*.local.md
