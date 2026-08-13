@@ -196,6 +196,9 @@ func fillAndRadiusSurviveARotation() {
     optionsRow(of: view)?.onFillModeSelected?(.fillOnly)
     drag(in: view, window: window, from: CGPoint(x: 60, y: 80), to: CGPoint(x: 140, y: 110))
 
+    // Rotating a placed element is the select tool's job; a drag with the
+    // rectangle tool still active would draw another one.
+    view.keyDown(with: key("s", 1, window))
     // Select it and turn it a quarter turn about its centre (100,95).
     drag(in: view, window: window, from: CGPoint(x: 100, y: 95), to: CGPoint(x: 100, y: 95))
     let knob = CGPoint(x: 100, y: 80 - AnnotationGeometry.rotationHandleOffset)

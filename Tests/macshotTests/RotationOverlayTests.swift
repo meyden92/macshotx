@@ -138,6 +138,9 @@ private func redAt(_ baked: CGImage, viewPoint: CGPoint, scale: CGFloat) -> UInt
 private func placeWideFillRect(in view: RegionPickerView, window: NSWindow) {
     view.keyDown(with: keyEvent("f", keyCode: 3, window: window))
     drag(in: view, window: window, from: CGPoint(x: 40, y: 60), to: CGPoint(x: 110, y: 80))
+    // Grabbing the rotation knob is the select tool's job; a drag with the
+    // fill tool still active would draw another rect.
+    view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
     click(in: view, window: window, at: CGPoint(x: 75, y: 70))
 }
 
