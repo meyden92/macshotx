@@ -63,6 +63,18 @@ Pure SwiftPM — there is no Xcode project (`docs/adr/0004-swiftpm-no-xcode.md`)
 - Dev builds sign with the local "Apple Development" cert via raw `codesign` — this works from the CLI (xcodebuild's automatic-signing auth failure no longer applies). Ad-hoc fallback makes macOS re-prompt for Screen Recording after rebuilds.
 - `scripts/release.sh` — local-only release: Developer ID + notarization + `.dmg`.
 
+## Workflow
+
+### General Rules
+When working on something, no matter what, we need to always reference a github issue. So everything that has been done remains traceable
+
+### Working on issues
+When working on a implementation for an issue - Read the full epic on github, change the label to "Doing" and work on it on a separate branch.
+When done: Create a Pull Request and change the label to "testing" and instruct the user on how to test out the changes.
+
+### Bug reports
+When the user reports a bug that is not relevant to the current implementation task, you should create a issue on github for it and not start on a fix.
+
 ## Agent skills
 
 ### Issue tracker
