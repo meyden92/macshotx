@@ -3138,6 +3138,9 @@ final class RegionToolbarView: NSView {
         optionsRow.onFontSizeSelected = { [weak self] in self?.onFontSizeSelected?($0) }
         optionsRow.onGestureBegan = { [weak self] in self?.onStyleGestureBegan?() }
         optionsRow.onGestureEnded = { [weak self] in self?.onStyleGestureEnded?() }
+        optionsRow.onHover = { [weak self] text, frame in
+            self?.onButtonHover?(text, frame)
+        }
         optionsRow.frame.origin = NSPoint(x: 0, y: 8)
         addSubview(optionsRow)
     }
@@ -3543,6 +3546,9 @@ final class ToolOptionsRowView: NSView {
     /// lands as one undo entry and persists once instead of per tick.
     var onGestureBegan: (() -> Void)?
     var onGestureEnded: (() -> Void)?
+    /// The hovered control's tooltip and its frame, in the toolbar's
+    /// coordinates. The overlay draws its own tooltips — see `onHover`.
+    var onHover: ((String?, NSRect) -> Void)?
 
     let colorWell = ColorWellButton(tooltip: "Stroke and text colour")
     let dashControl = SegmentedOptionControl(
@@ -3711,6 +3717,48 @@ final class ToolOptionsRowView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    // MARK: Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self, userInfo: nil
+        ))
+    }
+
+    /// One tracking area for the whole row rather than one per control: every
+    /// control already carries its `toolTip`, and the row is rebuilt for each
+    /// tool, so hit-testing on the way past keeps the wiring in one place.
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hovered = tooltipOwner(at: point), let text = hovered.toolTip else {
+            onHover?(nil, .zero)
+            return
+        }
+        onHover?(text, hovered.convert(hovered.bounds, to: superview))
+    }
+
+    override func mouseExited(with event: NSEvent) { onHover?(nil, .zero) }
+
+    /// The deepest visible view under `point` that names itself — a slider sets
+    /// its tooltip on its track and readout too, and a segmented control sets
+    /// one per segment, so the answer is usually a leaf.
+    private func tooltipOwner(at point: NSPoint) -> NSView? {
+        func search(_ view: NSView, _ pointInView: NSPoint) -> NSView? {
+            for sub in view.subviews.reversed() where !sub.isHidden {
+                guard sub.frame.contains(pointInView) else { continue }
+                if let found = search(sub, sub.convert(pointInView, from: view)) {
+                    return found
+                }
+            }
+            return view.toolTip == nil ? nil : view
+        }
+        return search(self, point)
+    }
 
     @objc private func fontFamilyChanged() {
         onFontFamilySelected?(fontPopup.titleOfSelectedItem ?? TextLayout.systemFamilyName)

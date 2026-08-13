@@ -38,6 +38,51 @@ func everyControlInTheToolOptionsRowSaysWhatItChanges() {
     )
 }
 
+/// Carrying a tooltip is not the same as showing one: the overlay draws its own
+/// tooltips, and AppKit's never appear in this window. The row has to publish
+/// what the pointer is over, or every control is mute however well it is
+/// labelled.
+@MainActor
+@Test
+func pointingAtAControlPublishesItsTooltipForTheOverlayToDraw() {
+    let row = ToolOptionsRowView()
+    row.configure(options: Tool.text.options, style: AnnotationStyle())
+    let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 80))
+    let window = NSWindow(
+        contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false
+    )
+    window.contentView = host
+    host.addSubview(row)
+
+    var published: (text: String?, frame: NSRect)?
+    row.onHover = { published = ($0, $1) }
+
+    let bold = try! #require(row.traitToggles[.bold])
+    let center = row.convert(bold.frame.center, from: bold.superview)
+    row.mouseMoved(with: moved(to: row.convert(center, to: nil), in: window))
+
+    #expect(published?.text == bold.toolTip)
+    #expect(published?.frame == bold.convert(bold.bounds, to: host),
+            "The frame is what the overlay anchors the tooltip to")
+
+    // Off every control, the tooltip has to be taken back down again.
+    row.mouseExited(with: moved(to: .zero, in: window))
+    #expect(published?.text == nil)
+}
+
+private extension NSRect {
+    var center: NSPoint { NSPoint(x: midX, y: midY) }
+}
+
+@MainActor
+private func moved(to windowPoint: NSPoint, in window: NSWindow) -> NSEvent {
+    NSEvent.mouseEvent(
+        with: .mouseMoved, location: windowPoint, modifierFlags: [], timestamp: 0,
+        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+        clickCount: 0, pressure: 0
+    )!
+}
+
 @MainActor
 @Test
 func theSwatchesAndTheFontMenuNameTheThingTheyColourOrSet() {
