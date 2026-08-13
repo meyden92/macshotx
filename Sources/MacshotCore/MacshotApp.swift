@@ -74,12 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so for the bundled app; this also covers an unbundled `swift run`.
         NSApp.setActivationPolicy(.accessory)
 
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
+        // No authorization request here: prompting at launch would burn the one
+        // prompt macOS gives before the user has any context. The wizard and
+        // Settings → Permissions ask for it, and Notifier asks lazily before the
+        // first banner.
+        UNUserNotificationCenter.current().delegate = self
         Notifier.registerCategories()
-        Task {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
-        }
 
         HotkeyManager.shared.handler = { action in
             AppDelegate.perform(action)
