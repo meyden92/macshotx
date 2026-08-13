@@ -23,13 +23,27 @@ func radiusTiersAreOrderedLargestFirst() {
 @MainActor
 @Test
 func theAccentRolesResolveToTheUsersAccentColourNotAFixedBlue() {
-    #expect(ChromeTintRole.neutral.tintColor == nil, "A strip or a card is untinted glass")
+    #expect(ChromeTintRole.neutral.tintColor == nil, "A resting control has no fill")
     #expect(ChromeTintRole.active.tintColor == NSColor.controlAccentColor)
     #expect(ChromeTintRole.primary.tintColor == NSColor.controlAccentColor)
     #expect(ChromeTintRole.destructive.tintColor == NSColor.systemRed)
     // Dynamic colours, never snapshotted: the role hands back the system colour
     // itself, so it re-resolves with appearance and accent changes.
     #expect(ChromeTintRole.neutral.contentColor == NSColor.labelColor)
+    #expect(ChromeTintRole.active.surfaceTint == NSColor.controlAccentColor)
+    #expect(ChromeTintRole.destructive.surfaceTint == NSColor.systemRed)
+}
+
+/// The glass samples the backdrop, not the pinned appearance, so a neutral
+/// surface has to be dark on its own — otherwise a light window behind the
+/// overlay renders light glass under the chrome's light text.
+@MainActor
+@Test
+func aNeutralGlassSurfaceIsDarkOnItsOwnRatherThanFollowingTheBackdrop() {
+    let tint = ChromeTintRole.neutral.surfaceTint
+    let srgb = try! #require(tint.usingColorSpace(.sRGB))
+    #expect(srgb.brightnessComponent < 0.25, "Neutral glass must read as a dark HUD")
+    #expect(srgb.alphaComponent > 0, "A fully transparent tint leaves the glass adaptive")
 }
 
 @Test
