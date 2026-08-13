@@ -24,6 +24,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            PermissionsSettingsTab()
+                .tabItem { Label("Permissions", systemImage: "hand.raised") }
             HotkeysSettingsTab()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
             CaptureSettingsTab()
@@ -93,6 +95,21 @@ struct GeneralSettingsTab: View {
         } catch {
             Log.error("Launch-at-login change failed: \(error)")
         }
+    }
+}
+
+// MARK: - Permissions
+
+/// What the app requires and whether macOS has granted it — the same list the
+/// setup wizard shows, so it stays reachable after the wizard is gone.
+struct PermissionsSettingsTab: View {
+    var body: some View {
+        VStack(alignment: .leading) {
+            PermissionsList()
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

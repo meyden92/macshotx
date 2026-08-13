@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UserNotifications
 
 /// First-launch wizard (PRD §9.1): permissions, save folder, hotkeys, done.
 /// Skippable at any point.
@@ -44,7 +43,6 @@ struct OnboardingView: View {
     let onFinish: () -> Void
     @ObservedObject private var store = ConfigStore.shared
     @State private var page: Int
-    @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
     private let pageCount = 4
 
@@ -120,60 +118,13 @@ struct OnboardingView: View {
         .padding(.top, 32)
     }
 
+    /// The same list Settings → Permissions shows, so the wizard and the panel
+    /// can never disagree about what macshot needs.
     private var permissions: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Permissions")
                 .font(.title2.bold())
-            HStack {
-                Image(systemName: screenRecordingGranted
-                    ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(screenRecordingGranted ? .green : .orange)
-                VStack(alignment: .leading) {
-                    Text("Screen Recording").bold()
-                    Text("Required for every capture.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Request") {
-                    CGRequestScreenCaptureAccess()
-                    screenRecordingGranted = CGPreflightScreenCaptureAccess()
-                }
-                Button("Open System Settings") {
-                    if let url = URL(
-                        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-                    ) {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            }
-            HStack {
-                Image(systemName: "bell.badge")
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading) {
-                    Text("Notifications").bold()
-                    Text("Capture success and failure banners with quick actions.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Request") {
-                    Task {
-                        _ = try? await UNUserNotificationCenter.current()
-                            .requestAuthorization(options: [.alert, .sound])
-                    }
-                }
-            }
-            Text(
-                "Hotkeys use the system hotkey API and need no Accessibility "
-                + "permission. After granting Screen Recording you may need to "
-                + "relaunch macshot."
-            )
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            Button("Re-check") {
-                screenRecordingGranted = CGPreflightScreenCaptureAccess()
-            }
+            PermissionsList()
         }
     }
 
