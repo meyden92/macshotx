@@ -99,6 +99,9 @@ private func placeAndSelect(
 ) {
     view.keyDown(with: key(tool.0, tool.1, window))
     drag(view, window, from: CGPoint(x: 40, y: 40), to: CGPoint(x: 140, y: 120))
+    // Handles and the rotation knob answer to the select tool; a drag with the
+    // drawing tool still active would draw another element.
+    view.keyDown(with: key("s", 1, window))
     click(view, window, at: CGPoint(x: 90, y: 80))
 }
 

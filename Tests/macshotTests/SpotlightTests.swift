@@ -283,6 +283,9 @@ func aSpotlightIsSelectableMovableAndResizable() throws {
     view.keyDown(with: key("d", 2, window))
     drag(in: view, window: window, from: CGPoint(x: 60, y: 60), to: CGPoint(x: 100, y: 100))
 
+    // Moving and resizing a placed element is the select tool's job; a drag
+    // with the spotlight tool still active would draw another one.
+    view.keyDown(with: key("s", 1, window))
     // Select it, then drag its body somewhere else.
     drag(in: view, window: window, from: CGPoint(x: 80, y: 80), to: CGPoint(x: 80, y: 80))
     drag(in: view, window: window, from: CGPoint(x: 80, y: 80), to: CGPoint(x: 120, y: 120))
@@ -299,7 +302,7 @@ func aSpotlightIsSelectableMovableAndResizable() throws {
 @MainActor
 private func onScreenBrightness(_ view: RegionPickerView, _ point: CGPoint) throws -> Int {
     let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-    view.cacheDisplay(in: view.bounds, to: rep)
+    view.cacheDisplayWithoutChrome(to: rep)
     let scale = CGFloat(rep.pixelsWide) / view.bounds.width
     let color = try #require(rep.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
     return Int((color.redComponent * 255).rounded())
@@ -316,8 +319,7 @@ func theDimIsClippedToTheSelectionSoItDoesNotStackWithTheOverlaysOwn() throws {
     drag(in: view, window: window, from: CGPoint(x: 60, y: 60), to: CGPoint(x: 100, y: 100))
 
     // Outside the Selection the overlay already dims at 40%, and that area is
-    // not captured. Sampled clear of the toolbar, which covers the middle of so
-    // small an overlay.
+    // not captured.
     #expect(try onScreenBrightness(view, CGPoint(x: 20, y: 20)) > 120,
             "Stacking the composed layer on the overlay's own dim would go much darker")
 

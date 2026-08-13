@@ -1,4 +1,16 @@
-## 1. Think Before Coding
+## Coding preferences - general
+- Keep things simple. Channel "yagni" energy unless told otherwise
+- Typesafety is useful, take advantage of it.
+- Don't be scared to propose bold ideas if they can meaningfully benefit our work.
+- Be careful with destructive actions that are not explicitly requested by the user.
+- Tests are good! Endless smoke tests, "regression tests" for feature deletions, etc, much less good. Tests should be focused, not slop.
+- Comments are a great way to clarify functionality and how code is used. Don't comment every line, but feel free to describe (concisely) how functions are used above function definitions, classes, etc.
+- Keep comments up to date! When making changes, it's important to keep things in sync.
+
+## Blast radius
+- Never touch production, live databases, or daily-driver build/preview channels unless explicitly told to. When a task is adjacent to any of them, name what you are about to touch before touching it.
+
+## Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
@@ -8,7 +20,7 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-## 2. Simplicity First
+## Simplicity First
 
 **Minimum code that solves the problem. Nothing speculative.**
 
@@ -20,7 +32,7 @@ Before implementing:
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## 3. Surgical Changes
+## Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
 
@@ -36,7 +48,7 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
-## 4. Goal-Driven Execution
+## Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
@@ -62,3 +74,25 @@ Pure SwiftPM — there is no Xcode project (`docs/adr/0004-swiftpm-no-xcode.md`)
 - App version and Info.plist keys live in `scripts/bundle.sh`.
 - Dev builds sign with the local "Apple Development" cert via raw `codesign` — this works from the CLI (xcodebuild's automatic-signing auth failure no longer applies). Ad-hoc fallback makes macOS re-prompt for Screen Recording after rebuilds.
 - `scripts/release.sh` — local-only release: Developer ID + notarization + `.dmg`.
+
+## Workflow
+
+### General Rules
+When working on something, no matter what, we need to always reference a github issue. So everything that has been done remains traceable
+
+### Working on issues
+When working on a implementation for an issue - Read the full epic on github, change the label to "Doing" and work on it on a separate branch.
+When done: Create a Pull Request and change the label to "testing" and instruct the user on how to test out the changes.
+
+### Bug reports
+When the user reports a bug that is not relevant to the current implementation task, you should create a issue on github for it and not start on a fix.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

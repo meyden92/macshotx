@@ -220,6 +220,9 @@ func aLoupeIsSelectableMovableAndDeletableLikeAnyOtherAnnotation() throws {
     view.keyDown(with: key("g", 5, window))
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 180, y: 60))
 
+    // Moving a placed element is the select tool's job; the loupe tool would
+    // draw another loupe instead.
+    view.keyDown(with: key("s", 1, window))
     // Grabbed between the circles rather than on one of them, which moves the
     // whole magnifier.
     drag(in: view, window: window, from: CGPoint(x: 90, y: 20), to: CGPoint(x: 100, y: 40))

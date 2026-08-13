@@ -41,8 +41,9 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
         presetsButton = MiniButton(title: "▾", width: 22)
         super.init(frame: NSRect(x: 0, y: 0, width: 210, height: 30))
         wantsLayer = true
-        // Glass follows the system appearance, so the box no longer forces dark
-        // styling on its fields and its text is dynamic rather than white.
+        // The fields keep dynamic text rather than a hardcoded white: the
+        // overlay pins its chrome to a dark appearance, so the semantic colours
+        // resolve light there on their own.
         GlassChrome.installBackdrop(in: self, radius: .small)
 
         let times = NSTextField(labelWithString: "×")

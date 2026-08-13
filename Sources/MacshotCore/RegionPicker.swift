@@ -246,6 +246,13 @@ final class RegionPickerView: NSView {
         super.init(frame: frame)
         loadStyles(styles)
         wantsLayer = true
+        // The chrome floats over whatever is on screen, so following the system
+        // appearance is the wrong reference: in Light Mode over a dark app the
+        // glass samples near-black and .labelColor draws near-black on top of
+        // it. Pin the chrome to a dark HUD instead — light content on a dark
+        // surface reads over a dark backdrop and a light one alike. Every piece
+        // of chrome is a subview of this view, so one appearance covers them.
+        appearance = NSAppearance(named: .darkAqua)
         setupToolbar()
     }
 
@@ -1641,7 +1648,8 @@ final class RegionPickerView: NSView {
         // and stays armed: the key is still held, so the user can sweep on and
         // take another span.
         if let preview = autoMeasure?.preview {
-            document.insert(preview)
+            selectedIDs = [document.insert(preview)]
+            refreshToolOptions()
             needsDisplay = true
             return
         }
@@ -1683,10 +1691,15 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Grabbing an existing element takes priority over the active tool, so a
-        // placed annotation is always selectable/movable/resizable — no need to
-        // switch back to the select tool first.
-        if let id = selectedID, let selected = document.annotation(for: id) {
+        // Grabbing a placed element belongs to the select tool. While a drawing
+        // tool is active the drag has to draw instead, or there is no way to
+        // put a new element on top of an existing one — a smaller rectangle
+        // inside a redact box, a label over an arrow. Command grabs without
+        // switching tools, and a bare click still selects (see mouseUp).
+        let manipulates = currentTool == .select
+            || event.modifierFlags.contains(.command)
+
+        if manipulates, let id = selectedID, let selected = document.annotation(for: id) {
             // The rotation handle floats clear of the box, so it is checked
             // first only to keep the two grabs from ever competing.
             if AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize) {
@@ -1707,14 +1720,14 @@ final class RegionPickerView: NSView {
 
         // A set of several drags as one unit from anywhere inside its combined
         // outline; Shift is reserved for changing who is in the set.
-        if !shift, selectedIDs.count > 1,
+        if manipulates, !shift, selectedIDs.count > 1,
            let bounds = selectedSetBounds, bounds.contains(point) {
             movingAnnotation = true
             beginManipulation(at: point, of: selectedIDs)
             return
         }
 
-        if let id = hitAnnotationID(at: point) {
+        if manipulates, let id = hitAnnotationID(at: point) {
             if shift {
                 // Shift-click fixes up a marquee that caught one item too many.
                 if let existing = selectedIDs.firstIndex(of: id) {
@@ -1870,17 +1883,28 @@ final class RegionPickerView: NSView {
                 calloutAnchor: anchor
             )
         } else if let draft = draftAnnotation, isMeaningful(draft) {
-            document.insert(settled(draft))
+            // What was just drawn stays selected, so a tool option changed
+            // straight afterwards lands on it instead of only on the next one.
+            selectedIDs = [document.insert(settled(draft))]
             draftAnnotation = nil
             dragStart = nil
+            refreshToolOptions()
         } else {
             let discardedToolClick = draftAnnotation != nil
             draftAnnotation = nil
             dragStart = nil
-            // A tool click that drew nothing still snap-captures the window
-            // under it; with snap off it stays a no-op.
             if discardedToolClick {
-                handleBareClick(with: event, allowsDisplayCapture: false)
+                // Only drags belong to the drawing tool, so a click that drew
+                // nothing can still pick up the element underneath — that is
+                // what keeps elements reachable without a tool switch.
+                if let id = hitAnnotationID(at: convert(event.locationInWindow, from: nil)) {
+                    selectedIDs = [id]
+                    refreshToolOptions()
+                } else {
+                    // A tool click on empty canvas still snap-captures the
+                    // window under it; with snap off it stays a no-op.
+                    handleBareClick(with: event, allowsDisplayCapture: false)
+                }
             }
         }
         needsDisplay = true
@@ -1938,6 +1962,15 @@ final class RegionPickerView: NSView {
         }
         updateSnapHighlight(atWindowPoint: event.locationInWindow)
         if let toolbar, toolbar.frame.contains(point) { return }
+        updateCursor(at: point, modifiers: event.modifierFlags)
+    }
+
+    /// The grab cursor has to agree with what mouseDown will actually do: under
+    /// a drawing tool the drag draws, so hovering an element must still read as
+    /// "draw here" rather than promising a move. Command flips that back, which
+    /// is why flagsChanged re-runs this without the pointer having moved.
+    private func updateCursor(at point: NSPoint, modifiers: NSEvent.ModifierFlags) {
+        let manipulates = currentTool == .select || modifiers.contains(.command)
         let overElement: Bool
         if let id = selectedID, let selected = document.annotation(for: id),
            AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
@@ -1948,7 +1981,7 @@ final class RegionPickerView: NSView {
         } else {
             overElement = hitAnnotationID(at: point) != nil
         }
-        (overElement ? NSCursor.openHand : NSCursor.crosshair).set()
+        (manipulates && overElement ? NSCursor.openHand : NSCursor.crosshair).set()
     }
 
     /// With snap armed and no selection in progress, the topmost window under
@@ -2262,6 +2295,9 @@ final class RegionPickerView: NSView {
             selectionGesture = gesture
             layoutChrome()
             needsDisplay = true
+        } else if !isBeautifying, let point = lastPointerPoint,
+                  toolbar.map({ !$0.frame.contains(point) }) ?? true {
+            updateCursor(at: point, modifiers: event.modifierFlags)
         }
         super.flagsChanged(with: event)
     }
@@ -2544,9 +2580,13 @@ final class RegionPickerView: NSView {
             // Re-edit keeps the annotation's own style and geometry; only the
             // words changed.
             document.replace(editedID, with: reContented(existing, content: content))
+            selectedIDs = [editedID]
         } else {
-            document.insert(updated)
+            selectedIDs = [document.insert(updated)]
         }
+        // Just-typed words are still the active element, so the size and colour
+        // controls act on them rather than on the next label.
+        refreshToolOptions()
         needsDisplay = true
     }
 
@@ -3098,6 +3138,9 @@ final class RegionToolbarView: NSView {
         optionsRow.onFontSizeSelected = { [weak self] in self?.onFontSizeSelected?($0) }
         optionsRow.onGestureBegan = { [weak self] in self?.onStyleGestureBegan?() }
         optionsRow.onGestureEnded = { [weak self] in self?.onStyleGestureEnded?() }
+        optionsRow.onHover = { [weak self] text, frame in
+            self?.onButtonHover?(text, frame)
+        }
         optionsRow.frame.origin = NSPoint(x: 0, y: 8)
         addSubview(optionsRow)
     }
@@ -3503,8 +3546,11 @@ final class ToolOptionsRowView: NSView {
     /// lands as one undo entry and persists once instead of per tick.
     var onGestureBegan: (() -> Void)?
     var onGestureEnded: (() -> Void)?
+    /// The hovered control's tooltip and its frame, in the toolbar's
+    /// coordinates. The overlay draws its own tooltips — see `onHover`.
+    var onHover: ((String?, NSRect) -> Void)?
 
-    let colorWell = ColorWellButton()
+    let colorWell = ColorWellButton(tooltip: "Stroke and text colour")
     let dashControl = SegmentedOptionControl(
         titles: DashStyle.allCases.map(\.label),
         tooltips: DashStyle.allCases.map(\.tooltip)
@@ -3518,7 +3564,7 @@ final class ToolOptionsRowView: NSView {
         titles: FillMode.allCases.map(\.label),
         tooltips: FillMode.allCases.map(\.tooltip)
     )
-    let fillColorWell = ColorWellButton()
+    let fillColorWell = ColorWellButton(tooltip: "Fill colour")
     let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let traitToggles: [TextTrait: ToggleOptionButton] = [
         .bold: ToggleOptionButton(title: "B", tooltip: "Bold"),
@@ -3531,9 +3577,9 @@ final class ToolOptionsRowView: NSView {
         tooltips: TextAlignment.allCases.map(\.tooltip)
     )
     let backgroundToggle = ToggleOptionButton(title: "▤", tooltip: "Background behind the text")
-    let backgroundWell = ColorWellButton()
+    let backgroundWell = ColorWellButton(tooltip: "Colour of the background behind the text")
     let outlineToggle = ToggleOptionButton(title: "◌", tooltip: "Outline around the glyphs")
-    let outlineWell = ColorWellButton()
+    let outlineWell = ColorWellButton(tooltip: "Colour of the outline around the glyphs")
     let ringToggle = ToggleOptionButton(title: "◯", tooltip: "Rings and connector")
     let spotlightShapeControl = SegmentedOptionControl(
         titles: SpotlightShape.allCases.map(\.label),
@@ -3556,23 +3602,28 @@ final class ToolOptionsRowView: NSView {
         self.separator = sep
         self.widthSlider = OptionSlider(
             range: Self.lineWidthRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Stroke width, in points"
         )
         self.fontSlider = OptionSlider(
             range: Self.fontSizeRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Font size, in points"
         )
         self.radiusSlider = OptionSlider(
             range: Self.cornerRadiusRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Corner radius — 0 leaves the corners square"
         )
         self.magnificationSlider = OptionSlider(
             range: LoupeGeometry.magnificationRange,
-            format: { String(format: "%.1f×", $0) }
+            format: { String(format: "%.1f×", $0) },
+            tooltip: "How much the loupe magnifies what it points at"
         )
         self.dimSlider = OptionSlider(
             range: SpotlightGeometry.strengthRange,
-            format: { String(format: "%.0f%%", $0 * 100) }
+            format: { String(format: "%.0f%%", $0 * 100) },
+            tooltip: "How far the area outside the spotlight is dimmed"
         )
         super.init(frame: .zero)
 
@@ -3600,6 +3651,7 @@ final class ToolOptionsRowView: NSView {
         fontPopup.action = #selector(fontFamilyChanged)
         fontPopup.controlSize = .small
         fontPopup.font = NSFont.systemFont(ofSize: 11)
+        fontPopup.toolTip = "Font family"
         fontPopup.frame = NSRect(x: 0, y: 2, width: 116, height: 20)
         addSubview(fontPopup)
 
@@ -3667,6 +3719,48 @@ final class ToolOptionsRowView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    // MARK: Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self, userInfo: nil
+        ))
+    }
+
+    /// One tracking area for the whole row rather than one per control: every
+    /// control already carries its `toolTip`, and the row is rebuilt for each
+    /// tool, so hit-testing on the way past keeps the wiring in one place.
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hovered = tooltipOwner(at: point), let text = hovered.toolTip else {
+            onHover?(nil, .zero)
+            return
+        }
+        onHover?(text, hovered.convert(hovered.bounds, to: superview))
+    }
+
+    override func mouseExited(with event: NSEvent) { onHover?(nil, .zero) }
+
+    /// The deepest visible view under `point` that names itself — a slider sets
+    /// its tooltip on its track and readout too, and a segmented control sets
+    /// one per segment, so the answer is usually a leaf.
+    private func tooltipOwner(at point: NSPoint) -> NSView? {
+        func search(_ view: NSView, _ pointInView: NSPoint) -> NSView? {
+            for sub in view.subviews.reversed() where !sub.isHidden {
+                guard sub.frame.contains(pointInView) else { continue }
+                if let found = search(sub, sub.convert(pointInView, from: view)) {
+                    return found
+                }
+            }
+            return view.toolTip == nil ? nil : view
+        }
+        return search(self, point)
+    }
 
     @objc private func fontFamilyChanged() {
         onFontFamilySelected?(fontPopup.titleOfSelectedItem ?? TextLayout.systemFamilyName)
@@ -3887,7 +3981,14 @@ final class OptionSlider: NSView {
     /// not jitter as the number under the cursor changes width.
     private let readoutWidth: CGFloat
 
-    init(range: ClosedRange<CGFloat>, format: @escaping (CGFloat) -> String) {
+    /// The tool-options row has no room for a caption beside each slider, so
+    /// what the value means lives in the tooltip. Sliders whose format string
+    /// already names them — the beautify and effects panels — pass none.
+    init(
+        range: ClosedRange<CGFloat>,
+        format: @escaping (CGFloat) -> String,
+        tooltip: String? = nil
+    ) {
         self.format = format
         let readout = Self.widestReadout(range: range, format: format)
         self.readoutWidth = readout
@@ -3908,6 +4009,11 @@ final class OptionSlider: NSView {
         addSubview(slider)
         addSubview(valueLabel)
         layoutParts()
+        // Tooltips are per-view, so the track and the readout each carry it —
+        // otherwise hovering the part the user actually aims at says nothing.
+        if let tooltip {
+            for view in [self, slider, valueLabel] as [NSView] { view.toolTip = tooltip }
+        }
 
         slider.target = self
         slider.action = #selector(sliderMoved)

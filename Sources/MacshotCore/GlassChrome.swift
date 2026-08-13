@@ -47,11 +47,24 @@ enum ChromeTintRole {
     case primary
     case destructive
 
-    /// Nil means untinted glass, which is what a strip, a card or a tooltip
-    /// wants.
+    /// The fill for a *control* — a button, a swatch, a segment. Nil means no
+    /// fill at all, which is what a resting control wants.
     var tintColor: NSColor? {
         switch self {
         case .neutral: return nil
+        case .active, .primary: return .controlAccentColor
+        case .destructive: return .systemRed
+        }
+    }
+
+    /// The tint for a glass *surface* — a strip, a card, a tooltip. Untinted
+    /// glass adapts its luminance to whatever is behind it, so a neutral
+    /// surface over a light window renders light and the chrome's pinned-light
+    /// text disappears into it. A neutral surface therefore carries an explicit
+    /// dark tint: the chrome is a dark HUD by construction, over any backdrop.
+    var surfaceTint: NSColor {
+        switch self {
+        case .neutral: return NSColor(white: 0.10, alpha: 0.55)
         case .active, .primary: return .controlAccentColor
         case .destructive: return .systemRed
         }
@@ -101,7 +114,7 @@ enum GlassChrome {
         case .glass:
             let glass = NSGlassEffectView()
             glass.cornerRadius = radius.radius
-            glass.tintColor = tint.tintColor
+            glass.tintColor = tint.surfaceTint
             glass.contentView = content
             glass.frame = content.frame
             content.frame = CGRect(origin: .zero, size: content.frame.size)
@@ -132,7 +145,7 @@ enum GlassChrome {
         case .glass:
             let glass = NSGlassEffectView()
             glass.cornerRadius = radius.radius
-            glass.tintColor = tint.tintColor
+            glass.tintColor = tint.surfaceTint
             backdrop = glass
         case .reduced:
             backdrop = reducedMaterialView(radius: radius, tint: tint)
