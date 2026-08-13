@@ -58,22 +58,24 @@ enum PermissionStatus: Sendable, Equatable {
     case granted
     /// Never asked — an in-app prompt still works.
     case notDetermined
-    /// Refused, or refused-or-never-asked where macOS won't say which.
-    case denied
+    /// Refused — or refused-or-never-asked, where macOS won't say which.
+    case notGranted
 
     var label: String {
         switch self {
         case .granted: "Granted"
         case .notDetermined: "Not requested"
-        case .denied: "Not granted"
+        case .notGranted: "Not granted"
         }
     }
 
+    /// Provisional authorization delivers quietly, with none of the banners the
+    /// row promises, so only full authorization counts as granted.
     init(_ authorization: UNAuthorizationStatus) {
         switch authorization {
-        case .authorized, .provisional: self = .granted
+        case .authorized: self = .granted
         case .notDetermined: self = .notDetermined
-        default: self = .denied
+        default: self = .notGranted
         }
     }
 }
@@ -89,9 +91,9 @@ final class PermissionsModel: ObservableObject {
         statuses[permission]
     }
 
-    /// Re-reads every permission from the system. Cheap enough to run on every
-    /// appearance, which is what makes a grant made in System Settings show up
-    /// as soon as the user comes back.
+    /// Re-reads every permission from the system. Runs once when the list
+    /// appears; a grant made in System Settings while the list is already on
+    /// screen shows up when the user hits Re-check.
     func refresh() async {
         var next: [SystemPermission: PermissionStatus] = [:]
         for permission in SystemPermission.allCases {
@@ -120,7 +122,7 @@ final class PermissionsModel: ObservableObject {
     private static func currentStatus(of permission: SystemPermission) async -> PermissionStatus {
         switch permission {
         case .screenRecording:
-            CGPreflightScreenCaptureAccess() ? .granted : .denied
+            CGPreflightScreenCaptureAccess() ? .granted : .notGranted
         case .notifications:
             PermissionStatus(await UNUserNotificationCenter.current()
                 .notificationSettings().authorizationStatus)
@@ -194,11 +196,14 @@ private struct PermissionRow: View {
         }
     }
 
+    // Missing is missing, whether or not the permission is required — the
+    // "Optional" badge is what says how much it matters, so the status itself
+    // stays readable at a glance.
     private var icon: String {
         switch status {
         case .granted: "checkmark.circle.fill"
         case .none: "circle.dashed"
-        default: permission.isRequired ? "exclamationmark.circle.fill" : "circle"
+        default: "exclamationmark.circle.fill"
         }
     }
 
@@ -206,7 +211,7 @@ private struct PermissionRow: View {
         switch status {
         case .granted: .green
         case .none: .secondary
-        default: permission.isRequired ? .orange : .secondary
+        default: .orange
         }
     }
 }

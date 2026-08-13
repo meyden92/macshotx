@@ -20,21 +20,22 @@ func everyPermissionNamesItselfAndPointsAtItsSystemSettingsPane() {
 @Test
 func notificationAuthorizationMapsOntoTheThreeStatusesTheRowsShow() {
     #expect(PermissionStatus(.authorized) == .granted)
-    #expect(PermissionStatus(.provisional) == .granted)
     #expect(PermissionStatus(.notDetermined) == .notDetermined)
-    #expect(PermissionStatus(.denied) == .denied)
+    #expect(PermissionStatus(.denied) == .notGranted)
+    // Provisional delivers quietly — no banners, so not what the row promises.
+    #expect(PermissionStatus(.provisional) == .notGranted)
 }
 
 @Test
 func requestIsOfferedOnlyWhenAPromptCouldStillDoSomething() {
     // Notifications prompt exactly once; after a refusal only System Settings helps.
     #expect(SystemPermission.notifications.canRequest(.notDetermined))
-    #expect(!SystemPermission.notifications.canRequest(.denied))
+    #expect(!SystemPermission.notifications.canRequest(.notGranted))
     #expect(!SystemPermission.notifications.canRequest(.granted))
 
     // Screen Recording's preflight cannot tell "never asked" from "refused",
     // so the request stays available until it is granted.
-    #expect(SystemPermission.screenRecording.canRequest(.denied))
+    #expect(SystemPermission.screenRecording.canRequest(.notGranted))
     #expect(SystemPermission.screenRecording.canRequest(.notDetermined))
     #expect(!SystemPermission.screenRecording.canRequest(.granted))
 }
