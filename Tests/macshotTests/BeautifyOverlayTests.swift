@@ -206,43 +206,6 @@ func theWindowFrameToggleAddsATitleBarToTheExportedImage() throws {
             "with a title bar strip above the capture, got \(bar)")
 }
 
-@MainActor
-@Test
-func aWindowCompanionImageComposesWithItsOwnCornersAndDisablesTheirControls() throws {
-    let (view, window) = beautified()
-    let panel = try #require(view.subviews.compactMap { $0 as? PostProcessingPanelView }.first)
-    panel.onStyleSelected?("paper")
-    panel.onShadowSelected?(.none)
-    panel.onPaddingChanged?(0.1)
-    panel.onCornerRadiusChanged?(0)
-    panel.onWindowFrameToggled?(true)
-
-    // A clean window image: opaque content with transparent rounded corners.
-    let ctx = CGContext(
-        data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 800,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    )!
-    ctx.setFillColor(NSColor.systemBlue.cgColor)
-    ctx.addPath(CGPath(
-        roundedRect: CGRect(x: 0, y: 0, width: 200, height: 200),
-        cornerWidth: 40, cornerHeight: 40, transform: nil
-    ))
-    ctx.fillPath()
-    view.setWindowCompanion(ctx.makeImage()!, for: NSRect(x: 100, y: 100, width: 200, height: 200))
-
-    #expect(panel.radiusSlider.isEnabled == false)
-    #expect(panel.windowFrameToggle.isEnabled == false,
-            "The window already carries its own corners and title bar")
-
-    let composed = try #require(selectAndConfirm(view, window))
-    #expect(composed.height == 240, "No title bar was added on top of the window's own")
-    let throughTheCorner = pixel(composed, 22, 22)
-    #expect(throughTheCorner.r > 200 && throughTheCorner.g > 200,
-            "The paper backdrop shows through the window's corner with no dark halo")
-    #expect(pixel(composed, 120, 120).b > 180, "and the window itself is in the middle")
-}
-
 // MARK: - Image effects
 
 @MainActor

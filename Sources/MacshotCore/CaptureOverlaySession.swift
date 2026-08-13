@@ -20,10 +20,8 @@ final class KeyableOverlayWindow: NSWindow {
 final class CaptureOverlaySession {
     struct Commit {
         let image: CGImage
-        let mode: CaptureMode
         let appName: String?
         let windowTitle: String?
-        let companionImage: CGImage?
         let mayContainTransparency: Bool
     }
 
@@ -33,17 +31,13 @@ final class CaptureOverlaySession {
         case failed(Error)
     }
 
-    /// The live session, if any. A capture hotkey pressed while the overlay
-    /// is already up re-arms snap on the existing session instead of stacking
-    /// a second set of overlays.
+    /// The live session, if any. The capture hotkey pressed while the overlay
+    /// is already up is a no-op rather than a second set of overlays.
     private static weak var active: CaptureOverlaySession?
 
-    static func run(initialSnapArmed: Bool) async -> Outcome {
-        if let active {
-            active.adoptEntrySnapState(initialSnapArmed)
-            return .cancelled
-        }
-        let session = CaptureOverlaySession(initialSnapArmed: initialSnapArmed)
+    static func run() async -> Outcome {
+        guard active == nil else { return .cancelled }
+        let session = CaptureOverlaySession()
         active = session
         defer { if active === session { active = nil } }
         return await session.run()
@@ -68,20 +62,19 @@ final class CaptureOverlaySession {
     /// Snap candidates, already filtered and z-order-deduplicated — computed
     /// once per capture, scanned per hover.
     private var snapCandidates: [WindowCandidate] = []
-    private var scWindowsByID: [UInt32: SCWindow] = [:]
     private var frontAppName: String?
     private var frontAppPID: pid_t?
     private var frontWindowTitle: String?
     private var continuation: CheckedContinuation<Outcome, Never>?
     private var hasResumed = false
 
-    private init(initialSnapArmed: Bool) {
+    private init() {
         let screens = NSScreen.screens
         self.screens = screens
         self.primaryHeight = screens.first?.frame.height ?? 0
-        self.model = CaptureSessionModel(
-            displayCount: screens.count, snapArmed: initialSnapArmed
-        )
+        // The overlay always starts with snap off: nothing about the capture is
+        // decided before it is on screen (ADR 0010).
+        self.model = CaptureSessionModel(displayCount: screens.count, snapArmed: false)
     }
 
     private func run() async -> Outcome {
@@ -169,17 +162,11 @@ final class CaptureOverlaySession {
                     id: window.windowID,
                     frame: window.frame,
                     bundleIdentifier: window.owningApplication?.bundleIdentifier,
-                    applicationName: window.owningApplication?.applicationName,
-                    title: window.title,
                     layer: window.windowLayer,
                     isOnScreen: window.isOnScreen
                 )
             },
             ownBundleID: ourBundle
-        )
-        scWindowsByID = Dictionary(
-            content.windows.map { ($0.windowID, $0) },
-            uniquingKeysWith: { first, _ in first }
         )
         // The pointer may not move again before the click; highlight now.
         for overlay in overlays { overlay.view.refreshSnapHighlightNow() }
@@ -201,11 +188,7 @@ final class CaptureOverlaySession {
             }
         }
         if let held = model.imageArrived(on: index) {
-            Task { [weak self] in
-                await self?.performCommit(
-                    on: held.display, route: held.route, payload: held.payload
-                )
-            }
+            performCommit(on: held.display, rect: held.rect)
         }
     }
 
@@ -289,7 +272,7 @@ final class CaptureOverlaySession {
 
     private func wire(_ view: RegionPickerView, at index: Int) {
         view.onCommitRequested = { [weak self] rect in
-            self?.requestCommit(on: index, route: .dragSelection, payload: .drag(rect))
+            self?.requestCommit(on: index, rect: rect)
         }
         view.onCancel = { [weak self] in self?.cancelRequested() }
         view.onSelectionActivity = { [weak self] active in
@@ -299,13 +282,12 @@ final class CaptureOverlaySession {
         view.onFullscreenKey = { [weak self] in self?.fullscreenKeyPressed() }
         view.onIdleClick = { [weak self] in
             // A click on an idle overlay must not fire while another display
-            // holds the selection — a misclick would discard careful work
-            // for a capture nobody asked for.
+            // holds the selection — a misclick would discard careful work.
             guard let self, self.model.selectionOwner == nil else { return }
-            self.requestCommit(on: index, route: .displayClick, payload: .wholeDisplay)
+            self.seedWholeDisplay(on: index)
         }
         view.onSnapClick = { [weak self] candidate in
-            self?.requestCommit(on: index, route: .windowSnap, payload: .window(candidate))
+            self?.seedWindow(candidate, on: index)
         }
         view.onSnapHover = { [weak self] cocoaPoint in
             self?.snapTarget(at: cocoaPoint, for: index)
@@ -375,13 +357,6 @@ final class CaptureOverlaySession {
         pushSnapState()
     }
 
-    /// A capture hotkey fired while this session is live: adopt its snap
-    /// intent (same rule as Tab — only before a selection exists).
-    private func adoptEntrySnapState(_ armed: Bool) {
-        guard model.snapArmed != armed, model.toggleSnap() else { return }
-        pushSnapState()
-    }
-
     private func pushSnapState() {
         for overlay in overlays { overlay.view.setSnapArmed(model.snapArmed) }
     }
@@ -399,14 +374,36 @@ final class CaptureOverlaySession {
         }
     }
 
-    /// `F`: fullscreen for the display under the cursor while that overlay is
-    /// idle; in every other state it keeps selecting the fill-rect tool.
+    /// `F`: fills the Selection to the display under the cursor while that
+    /// overlay is idle; in every other state it keeps selecting the fill-rect
+    /// tool, whose shortcut it is.
     private func fullscreenKeyPressed() {
         if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle {
-            requestCommit(on: index, route: .fullscreenKey, payload: .wholeDisplay)
+            seedWholeDisplay(on: index)
             return
         }
         for overlay in overlays { overlay.view.adoptTool(.fillRect) }
+    }
+
+    // MARK: - Seeding routes
+    //
+    // None of these capture: they hand the overlay a Selection and the user
+    // confirms it like any other (ADR 0011).
+
+    private func seedWholeDisplay(on index: Int) {
+        guard overlays.indices.contains(index) else { return }
+        let view = overlays[index].view
+        view.seedSelection(view.bounds)
+    }
+
+    private func seedWindow(_ candidate: WindowCandidate, on index: Int) {
+        guard overlays.indices.contains(index) else { return }
+        let overlay = overlays[index]
+        // The candidate's frame is global Quartz; the overlay's view space is
+        // the same orientation, offset to the display's own top-left corner.
+        overlay.view.seedSelection(candidate.frame.offsetBy(
+            dx: -overlay.quartzFrame.minX, dy: -overlay.quartzFrame.minY
+        ))
     }
 
     private func snapTarget(
@@ -424,144 +421,30 @@ final class CaptureOverlaySession {
 
     // MARK: - Commit routes
 
-    private func requestCommit(
-        on index: Int, route: OverlayCommitRoute, payload: OverlayCommitPayload
-    ) {
-        switch model.requestCommit(on: index, route: route, payload: payload) {
+    private func requestCommit(on index: Int, rect: CGRect) {
+        switch model.requestCommit(on: index, rect: rect) {
         case .perform:
-            Task { [weak self] in
-                await self?.performCommit(on: index, route: route, payload: payload)
-            }
+            performCommit(on: index, rect: rect)
         case .held, .ignored:
             break
         }
     }
 
-    private func performCommit(
-        on index: Int, route: OverlayCommitRoute, payload: OverlayCommitPayload
-    ) async {
+    /// The one commit: bake this display's frozen image, annotations and all,
+    /// cropped to the confirmed Selection.
+    private func performCommit(on index: Int, rect: CGRect) {
         guard overlays.indices.contains(index) else { return }
         let overlay = overlays[index]
-        let commit: Commit?
-        switch payload {
-        case .drag(let rect):
-            commit = overlay.view.bakedImage(croppingTo: rect).map {
-                Commit(
-                    image: $0, mode: route.captureMode,
-                    appName: frontAppName, windowTitle: frontWindowTitle,
-                    companionImage: nil,
-                    mayContainTransparency: overlay.view.mayContainTransparency
-                )
-            }
-        case .wholeDisplay:
-            commit = overlay.view.bakedImage().map {
-                Commit(
-                    image: $0, mode: route.captureMode,
-                    appName: frontAppName, windowTitle: frontWindowTitle,
-                    companionImage: nil,
-                    mayContainTransparency: overlay.view.mayContainTransparency
-                )
-            }
-        case .window(let candidate):
-            commit = await windowCommit(candidate, overlay: overlay)
-        }
-        if let commit {
-            finish(.committed(commit))
-        } else {
+        guard let image = overlay.view.bakedImage(croppingTo: rect) else {
             finish(.failed(CaptureError.captureFailed(BakeFailedError())))
+            return
         }
-    }
-
-    /// Window snap: crop the frozen image (annotations baked) to the window,
-    /// plus the best-effort shadow-free companion image for phase 6.
-    private func windowCommit(
-        _ candidate: WindowCandidate, overlay: Overlay
-    ) async -> Commit? {
-        let includeShadow = ConfigStore.shared.config.capture.includeWindowShadow
-        let scWindow = scWindowsByID[candidate.id]
-
-        var companion: CGImage?
-        if let scWindow {
-            do {
-                companion = try await Self.captureSingleWindow(scWindow, ignoreShadows: true)
-            } catch {
-                Log.error("Window companion capture failed: \(error)")
-            }
-        }
-
-        var shadowedBounds: CGRect?
-        if includeShadow, let scWindow, let companion {
-            shadowedBounds = await Self.probeShadowedBounds(
-                of: scWindow, frame: candidate.frame, shadowFree: companion
-            )
-        }
-
-        guard
-            let cropRect = WindowCropGeometry.flatCropRect(
-                windowFrame: candidate.frame,
-                shadowedBounds: shadowedBounds,
-                includeShadow: includeShadow,
-                displayQuartzFrame: overlay.quartzFrame
-            )
-        else { return nil }
-        // Beautify composites the clean window instead of the flat crop, so the
-        // backdrop shows through its real corners. With beautify off the flat
-        // capture is still what a window capture produces.
-        overlay.view.setWindowCompanion(companion, for: cropRect)
-        guard let image = overlay.view.bakedImage(croppingTo: cropRect) else { return nil }
-        return Commit(
+        finish(.committed(Commit(
             image: image,
-            mode: .window,
-            appName: candidate.applicationName,
-            windowTitle: candidate.title,
-            companionImage: companion,
+            appName: frontAppName,
+            windowTitle: frontWindowTitle,
             mayContainTransparency: overlay.view.mayContainTransparency
-        )
-    }
-
-    private static func captureSingleWindow(
-        _ window: SCWindow, ignoreShadows: Bool
-    ) async throws -> CGImage {
-        let filter = SCContentFilter(desktopIndependentWindow: window)
-        let config = SCStreamConfiguration()
-        let scale = CGFloat(filter.pointPixelScale)
-        config.width = Int(filter.contentRect.width * scale)
-        config.height = Int(filter.contentRect.height * scale)
-        config.showsCursor = false
-        config.capturesAudio = false
-        config.ignoreShadowsSingleWindow = ignoreShadows
-        return try await SCScreenshotManager.captureImage(
-            contentFilter: filter, configuration: config
-        )
-    }
-
-    /// Best-effort shadowed bounds: capture the window once with its shadow
-    /// and compare opaque bounding boxes against the shadow-free companion —
-    /// the margin arithmetic lives in WindowCropGeometry where it is tested.
-    /// Snapshots are size-capped via PixelSnapshot and scanned off the main
-    /// actor; nil on any surprise, and the flat crop falls back to the frame.
-    private static func probeShadowedBounds(
-        of window: SCWindow, frame: CGRect, shadowFree: CGImage
-    ) async -> CGRect? {
-        guard
-            let shadowed = try? await captureSingleWindow(window, ignoreShadows: false),
-            shadowed.width == shadowFree.width,
-            shadowed.height == shadowFree.height,
-            let shadowSnapshot = PixelSnapshot(image: shadowed),
-            let freeSnapshot = PixelSnapshot(image: shadowFree)
-        else { return nil }
-        let boxes = await Task.detached(priority: .userInitiated) {
-            (
-                shadow: WindowCropGeometry.opaqueBoundingBox(of: shadowSnapshot),
-                window: WindowCropGeometry.opaqueBoundingBox(of: freeSnapshot)
-            )
-        }.value
-        guard let shadowBox = boxes.shadow, let windowBox = boxes.window else {
-            return nil
-        }
-        return WindowCropGeometry.shadowedBounds(
-            windowBox: windowBox, shadowBox: shadowBox, frame: frame
-        )
+        )))
     }
 
     // MARK: - Resolution

@@ -219,10 +219,6 @@ struct CaptureSettingsTab: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
-            Toggle(
-                "Include window shadow in window captures",
-                isOn: store.binding(\.capture.includeWindowShadow)
-            )
         }
         .padding(20)
     }
@@ -274,7 +270,7 @@ struct FilenamesSettingsTab: View {
             Section("Tokens") {
                 Text(
                     "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
-                    + "%window %app — active window/app · %mode — region/window/fullscreen\n"
+                    + "%window %app — active window/app\n"
                     + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
                 )
                 .font(.callout.monospaced())
@@ -288,7 +284,6 @@ struct FilenamesSettingsTab: View {
         var context = FilenameTemplate.Context()
         context.windowTitle = "Project_Plan"
         context.appName = "Safari"
-        context.mode = "region"
         context.counter = 42
         context.counterPadding = store.config.filenames.counterPadding
         return FilenameTemplate.expand(template, context: context)
@@ -303,14 +298,9 @@ struct PipelineSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Global pipeline") {
-                    PipelineActionsEditor(actions: store.binding(\.pipeline.global))
+                GroupBox("Pipeline") {
+                    PipelineActionsEditor(actions: store.binding(\.pipeline.actions))
                 }
-                ModeOverrideEditor(mode: "Region", override: store.binding(\.pipeline.region))
-                ModeOverrideEditor(mode: "Window", override: store.binding(\.pipeline.window))
-                ModeOverrideEditor(
-                    mode: "Fullscreen", override: store.binding(\.pipeline.fullscreen)
-                )
                 Text(
                     "Actions run top to bottom after every capture. If one fails, the "
                     + "pipeline stops and shows a notification with a Retry option."
@@ -319,36 +309,6 @@ struct PipelineSettingsTab: View {
                 .foregroundStyle(.secondary)
             }
             .padding(20)
-        }
-    }
-}
-
-struct ModeOverrideEditor: View {
-    let mode: String
-    @Binding var override: PipelineOverride
-    @ObservedObject private var store = ConfigStore.shared
-
-    var body: some View {
-        GroupBox("\(mode) capture") {
-            VStack(alignment: .leading) {
-                Toggle("Customize (instead of global pipeline)", isOn: Binding(
-                    get: {
-                        if case .replace = override { return true }
-                        return false
-                    },
-                    set: { custom in
-                        override = custom
-                            ? .replace(store.config.pipeline.global)
-                            : .useGlobal
-                    }
-                ))
-                if case .replace(let actions) = override {
-                    PipelineActionsEditor(actions: Binding(
-                        get: { actions },
-                        set: { override = .replace($0) }
-                    ))
-                }
-            }
         }
     }
 }
@@ -783,7 +743,7 @@ struct AdvancedSettingsTab: View {
             let alert = NSAlert()
             alert.messageText = "Replace current configuration?"
             var info = "Destinations: \(bundle.config.destinations.count) · "
-                + "Global pipeline actions: \(bundle.config.pipeline.global.count)"
+                + "Pipeline actions: \(bundle.config.pipeline.actions.count)"
             let commands = ConfigPorter.shellCommands(in: bundle.config)
             if !commands.isEmpty {
                 info += "\n\n⚠️ This config runs shell commands:\n"

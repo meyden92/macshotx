@@ -6,7 +6,7 @@ import Testing
 func emptyJSONDecodesToDefaults() throws {
     let config = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
     #expect(config == AppConfig())
-    #expect(config.pipeline.global == [.copyImage, .saveToDisk])
+    #expect(config.pipeline.actions == [.copyImage, .saveToDisk])
     #expect(config.capture.saveDirectory == "~/Pictures/macshot")
     #expect(config.filenames.template == "Screenshot_%y-%mo-%d_%h-%mi-%s.png")
 }
@@ -17,8 +17,8 @@ func configRoundTripsThroughJSON() throws {
     config.general.notificationsEnabled = false
     config.capture.format = .jpeg
     config.capture.quality = 75
-    config.filenames.template = "%mode/%y%mo%d_%counter"
-    config.pipeline.global = [
+    config.filenames.template = "%app/%y%mo%d_%counter"
+    config.pipeline.actions = [
         .openInEditor,
         .copyImage,
         .saveToDisk,
@@ -28,13 +28,12 @@ func configRoundTripsThroughJSON() throws {
         .openInApp(bundleID: "com.apple.Preview"),
         .extractText
     ]
-    config.pipeline.window = .replace([.saveToDisk])
     var destination = Destination()
     destination.name = "my-r2"
     destination.kind = .s3
     destination.s3.bucket = "shots"
     config.destinations = [destination]
-    config.hotkeys.region = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
+    config.hotkeys.capture = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
     config.counters = ["/tmp/shots": 12]
     config.recents = ["/tmp/shots/a.png"]
 
@@ -55,20 +54,26 @@ func malformedFieldsFallBackToDefaults() throws {
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
     #expect(config.capture.format == .png)
     #expect(config.capture.quality == 100) // out-of-range clamps
-    #expect(config.pipeline.global == [.copyImage])
-    #expect(config.pipeline.window == .useGlobal)
+    #expect(config.pipeline.actions == [.copyImage])
     #expect(config.recents.isEmpty)
 }
 
 @Test
-func pipelineActionsPerModeRespectOverrides() {
-    var pipeline = PipelineSettings()
-    pipeline.global = [.copyImage, .saveToDisk]
-    pipeline.window = .replace([.openInEditor, .saveToDisk])
-
-    #expect(pipeline.actions(for: .region) == [.copyImage, .saveToDisk])
-    #expect(pipeline.actions(for: .window) == [.openInEditor, .saveToDisk])
-    #expect(pipeline.actions(for: .fullscreen) == [.copyImage, .saveToDisk])
+func aConfigWithPerModeOverridesLoadsWithTheOnePipelineInEffect() throws {
+    // The overrides are simply not read any more (ADR 0012); the action list
+    // they sat beside still is.
+    let json = """
+    {
+      "pipeline": {
+        "global": [ { "type": "copyImage" } ],
+        "region": { "mode": "replace", "actions": [ { "type": "extractText" } ] },
+        "window": { "mode": "replace", "actions": [ { "type": "saveToDisk" } ] },
+        "fullscreen": { "mode": "useGlobal" }
+      }
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+    #expect(config.pipeline.actions == [.copyImage])
 }
 
 @MainActor

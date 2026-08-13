@@ -6,7 +6,6 @@ enum FilenameTemplate {
         var date = Date()
         var windowTitle: String?
         var appName: String?
-        var mode = ""
         var host = ProcessInfo.processInfo.hostName
         var user = NSUserName()
         /// Pre-resolved counter value; nil renders as 1 (validation/preview).
@@ -16,9 +15,9 @@ enum FilenameTemplate {
         var randomProvider: (Int) -> String = { FilenameTemplate.randomAlphanumeric($0) }
     }
 
-    /// Token names ordered longest-first so `%mode` never half-matches `%mo`.
+    /// Token names ordered longest-first so `%host` never half-matches `%h`.
     private static let tokenNames = [
-        "counter", "window", "mode", "host", "user", "uuid",
+        "counter", "window", "host", "user", "uuid",
         "app", "rand", "mo", "mi", "ms", "y", "d", "h", "s"
     ]
 
@@ -50,7 +49,6 @@ enum FilenameTemplate {
         var context = Context()
         context.windowTitle = "Window"
         context.appName = "App"
-        context.mode = "region"
         let expanded = expand(template, context: context)
         return !expanded.isEmpty && expanded != extensionSuffix(of: expanded)
     }
@@ -133,7 +131,6 @@ enum FilenameTemplate {
                     : String(repeating: "0", count: width - raw.count) + raw
             case "window": replacement = sanitize(context.windowTitle ?? "")
             case "app": replacement = sanitize(context.appName ?? "")
-            case "mode": replacement = context.mode
             case "host": replacement = sanitize(context.host)
             case "user": replacement = sanitize(context.user)
             case "uuid": replacement = context.uuidProvider()

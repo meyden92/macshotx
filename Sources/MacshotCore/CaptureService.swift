@@ -16,51 +16,17 @@ enum CaptureError: LocalizedError {
 }
 
 enum CaptureService {
+    /// The one way a capture begins: present the capture overlay and let it
+    /// decide what gets captured (ADR 0010).
     @MainActor
-    static func captureFullscreen() async {
-        do {
-            let content = try await shareableContent(excludingDesktopWindows: false)
-            guard let display = displayUnderCursor(from: content.displays) else {
-                throw CaptureError.noDisplayUnderCursor
-            }
-            let front = frontmostInfo(in: content)
-            let image = try await captureDisplayImage(display, showsCursor: true)
-            playFeedback()
-            await PipelineRunner().run(CaptureArtifact(
-                image: image,
-                mode: .fullscreen,
-                appName: front.appName,
-                windowTitle: front.windowTitle
-            ))
-        } catch {
-            await notifyCaptureFailure(error)
-        }
-    }
-
-    /// Region and Window are two entries into one surface: the capture
-    /// overlay. The entry determines only the initial snap state; the commit
-    /// route inside the overlay determines the capture mode.
-    @MainActor
-    static func captureRegion() async {
-        await captureOverlay(initialSnapArmed: false)
-    }
-
-    @MainActor
-    static func captureWindow() async {
-        await captureOverlay(initialSnapArmed: true)
-    }
-
-    @MainActor
-    static func captureOverlay(initialSnapArmed: Bool) async {
-        switch await CaptureOverlaySession.run(initialSnapArmed: initialSnapArmed) {
+    static func captureOverlay() async {
+        switch await CaptureOverlaySession.run() {
         case .committed(let commit):
             playFeedback()
             await PipelineRunner().run(CaptureArtifact(
                 image: commit.image,
-                mode: commit.mode,
                 appName: commit.appName,
                 windowTitle: commit.windowTitle,
-                companionImage: commit.companionImage,
                 mayContainTransparency: commit.mayContainTransparency
             ))
         case .cancelled:
@@ -72,22 +38,8 @@ enum CaptureService {
 
     // MARK: - ScreenCaptureKit
 
-    private static func shareableContent(
-        excludingDesktopWindows: Bool
-    ) async throws -> SCShareableContent {
-        do {
-            return try await SCShareableContent.excludingDesktopWindows(
-                excludingDesktopWindows,
-                onScreenWindowsOnly: true
-            )
-        } catch {
-            throw CaptureError.captureFailed(error)
-        }
-    }
-
-    /// Shared by fullscreen capture and the capture overlay session. The
-    /// overlay passes macshot itself in `excluding` so an overlay can never
-    /// appear inside its own screenshot.
+    /// The overlay session's per-display screenshot. It passes macshot itself
+    /// in `excluding` so an overlay can never appear inside its own screenshot.
     @MainActor
     static func captureDisplayImage(
         _ display: SCDisplay,
@@ -117,47 +69,7 @@ enum CaptureService {
         }
     }
 
-    // MARK: - Context helpers
-
-    /// Frontmost app and window title at trigger time, for %app / %window.
-    @MainActor
-    private static func frontmostInfo(
-        in content: SCShareableContent
-    ) -> (appName: String?, windowTitle: String?) {
-        let ourBundle = Bundle.main.bundleIdentifier
-        guard
-            let app = NSWorkspace.shared.frontmostApplication,
-            app.bundleIdentifier != ourBundle
-        else {
-            // macshot itself is frontmost (menu bar click) — fall back to the
-            // topmost regular window on screen.
-            let window = content.windows.first {
-                $0.windowLayer == 0 && $0.isOnScreen
-                    && $0.owningApplication?.bundleIdentifier != ourBundle
-            }
-            return (window?.owningApplication?.applicationName, window?.title)
-        }
-        let window = content.windows.first {
-            $0.windowLayer == 0 && $0.isOnScreen
-                && $0.owningApplication?.processID == app.processIdentifier
-        }
-        return (app.localizedName, window?.title)
-    }
-
-    @MainActor
-    private static func displayUnderCursor(from displays: [SCDisplay]) -> SCDisplay? {
-        let mouseLocation = NSEvent.mouseLocation
-        let screenContainingMouse = NSScreen.screens.first { screen in
-            NSPointInRect(mouseLocation, screen.frame)
-        }
-        guard
-            let screen = screenContainingMouse,
-            let screenID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        else {
-            return displays.first
-        }
-        return displays.first(where: { $0.displayID == screenID }) ?? displays.first
-    }
+    // MARK: - Feedback
 
     @MainActor
     private static func playFeedback() {

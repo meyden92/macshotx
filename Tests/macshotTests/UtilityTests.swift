@@ -9,11 +9,11 @@ func hotkeyConflictsDetected() {
     var settings = HotkeySettings()
     #expect(settings.conflicts().isEmpty, "Default bindings must not conflict")
 
-    settings.window = settings.region
+    settings.magnifier = settings.capture
     let conflicts = settings.conflicts()
     #expect(conflicts.count == 1)
-    #expect(conflicts.first?.0 == .captureRegion)
-    #expect(conflicts.first?.1 == .captureWindow)
+    #expect(conflicts.first?.0 == .capture)
+    #expect(conflicts.first?.1 == .magnifier)
 }
 
 @Test

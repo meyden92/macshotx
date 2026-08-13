@@ -52,11 +52,14 @@ func tabTogglesSnapOnlyWhileNoSelectionExists() {
 
 // MARK: - Session model: pending images, held commits
 
+/// A confirmed Selection; which rectangle it is never changes a transition.
+private let unitRect = CGRect(x: 0, y: 0, width: 10, height: 10)
+
 @Test
 func commitBeforeImageArrivesIsHeldThenPerformed() {
     var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     let rect = CGRect(x: 5, y: 5, width: 50, height: 40)
-    #expect(model.requestCommit(on: 1, route: .dragSelection, payload: .drag(rect)) == .held)
+    #expect(model.requestCommit(on: 1, rect: rect) == .held)
     #expect(model.resolution == .pending)
 
     // Another display's image landing does not release the held commit.
@@ -64,9 +67,7 @@ func commitBeforeImageArrivesIsHeldThenPerformed() {
     #expect(model.resolution == .pending)
 
     let held = model.imageArrived(on: 1)
-    #expect(held == CaptureSessionModel.HeldCommit(
-        display: 1, route: .dragSelection, payload: .drag(rect)
-    ))
+    #expect(held == CaptureSessionModel.HeldCommit(display: 1, rect: rect))
     #expect(model.resolution == .committed)
 }
 
@@ -74,7 +75,7 @@ func commitBeforeImageArrivesIsHeldThenPerformed() {
 func commitAfterImageArrivedPerformsImmediately() {
     var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
     _ = model.imageArrived(on: 0)
-    #expect(model.requestCommit(on: 0, route: .windowSnap, payload: .wholeDisplay) == .perform)
+    #expect(model.requestCommit(on: 0, rect: unitRect) == .perform)
     #expect(model.resolution == .committed)
 }
 
@@ -86,7 +87,7 @@ func cancelIsNeverHeld() {
     // No transition escapes a resolved session — a screenshot failure
     // routes through the same cancel.
     #expect(model.imageArrived(on: 0) == nil)
-    #expect(model.requestCommit(on: 0, route: .dragSelection, payload: .wholeDisplay) == .ignored)
+    #expect(model.requestCommit(on: 0, rect: unitRect) == .ignored)
     let cancelledAgain = model.cancel()
     #expect(!cancelledAgain)
 }
@@ -94,7 +95,7 @@ func cancelIsNeverHeld() {
 @Test
 func cancelWinsOverAHeldCommit() {
     var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
-    #expect(model.requestCommit(on: 0, route: .dragSelection, payload: .wholeDisplay) == .held)
+    #expect(model.requestCommit(on: 0, rect: unitRect) == .held)
     let cancelled = model.cancel()
     #expect(cancelled)
     // The image landing later must not resurrect the held commit.
@@ -106,30 +107,35 @@ func cancelWinsOverAHeldCommit() {
 func sessionResolvesExactlyOnce() {
     var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
     _ = model.imageArrived(on: 0)
-    #expect(model.requestCommit(on: 0, route: .dragSelection, payload: .wholeDisplay) == .perform)
-    #expect(model.requestCommit(on: 0, route: .fullscreenKey, payload: .wholeDisplay) == .ignored)
+    #expect(model.requestCommit(on: 0, rect: unitRect) == .perform)
+    #expect(model.requestCommit(on: 0, rect: unitRect) == .ignored)
     let cancelAfterCommit = model.cancel()
     #expect(!cancelAfterCommit)
     #expect(model.resolution == .committed)
 }
 
-// MARK: - Commit route → capture mode
+// MARK: - Hotkey actions
 
 @Test
-func commitRoutesDeclareTheirCaptureModes() {
-    #expect(OverlayCommitRoute.dragSelection.captureMode == .region)
-    #expect(OverlayCommitRoute.windowSnap.captureMode == .window)
-    #expect(OverlayCommitRoute.displayClick.captureMode == .fullscreen)
-    #expect(OverlayCommitRoute.fullscreenKey.captureMode == .fullscreen)
+func thereIsOneCaptureHotkeyAndTwoUtilityHotkeys() {
+    // No entry point can pre-arm snap or pick what gets captured: the only
+    // capture action there is opens the overlay (ADR 0010).
+    #expect(HotkeyAction.allCases == [.capture, .colorPicker, .magnifier])
 }
 
 @Test
-func hotkeyActionDeterminesOnlyTheInitialSnapState() {
-    #expect(HotkeyAction.captureRegion.overlayInitialSnapArmed == false)
-    #expect(HotkeyAction.captureWindow.overlayInitialSnapArmed == true)
-    #expect(HotkeyAction.captureFullscreen.overlayInitialSnapArmed == nil)
-    #expect(HotkeyAction.colorPicker.overlayInitialSnapArmed == nil)
-    #expect(HotkeyAction.magnifier.overlayInitialSnapArmed == nil)
+func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() throws {
+    let legacy = """
+    {
+      "hotkeys": {
+        "region": { "keyCode": 30, "carbonModifiers": 256 },
+        "window": { "keyCode": 31, "carbonModifiers": 256 },
+        "fullscreen": { "keyCode": 32, "carbonModifiers": 256 }
+      }
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(legacy.utf8))
+    #expect(config.hotkeys == HotkeySettings())
 }
 
 // MARK: - Helper card content
@@ -144,6 +150,20 @@ func helperCardWordingFollowsTheSnapState() throws {
     #expect(off.instruction.contains("F for fullscreen"))
     #expect(on.status == "Window snap: ON (Tab)")
     #expect(off.status == "Window snap: OFF (Tab)")
+}
+
+@Test
+func helperCardNamesEveryRouteAndPromisesNoCapture() throws {
+    // Every route seeds the Selection now, so a card claiming that a click
+    // captures would be a lie (ADR 0011).
+    for armed in [true, false] {
+        let card = try #require(HelperCard.content(snapArmed: armed, suppressed: false))
+        let text = card.instruction + " " + card.status
+        #expect(text.contains("drag") || text.contains("Drag"))
+        #expect(text.contains("F for fullscreen"))
+        #expect(text.lowercased().contains("window"))
+        #expect(!card.instruction.lowercased().contains("captur"))
+    }
 }
 
 @Test
@@ -182,8 +202,6 @@ private func candidate(
         id: id,
         frame: CGRect(x: x, y: y, width: w, height: h),
         bundleIdentifier: bundle,
-        applicationName: "App",
-        title: "Window \(id)",
         layer: layer,
         isOnScreen: onScreen
     )
@@ -262,144 +280,4 @@ func coveredWindowDoesNotShadowWhatIsBehindTheCoveringWindow() {
         [front, covered, back], at: CGPoint(x: 600, y: 600), ownBundleID: nil
     )
     #expect(hit?.id == 3)
-}
-
-// MARK: - Flat window crop geometry
-
-@Test
-func cropRectConvertsGlobalFrameIntoDisplaySpace() {
-    // Secondary display sitting to the right of a 1920×1080 primary.
-    let display = CGRect(x: 1920, y: 200, width: 1440, height: 900)
-    let window = CGRect(x: 2000, y: 300, width: 600, height: 400)
-    let crop = WindowCropGeometry.flatCropRect(
-        windowFrame: window,
-        shadowedBounds: nil,
-        includeShadow: false,
-        displayQuartzFrame: display
-    )
-    #expect(crop == CGRect(x: 80, y: 100, width: 600, height: 400))
-}
-
-@Test
-func cropExpandsToShadowedBoundsOnlyWhenTheSettingIsOn() {
-    let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let window = CGRect(x: 500, y: 400, width: 400, height: 300)
-    let shadowed = window.insetBy(dx: -40, dy: -40)
-
-    let withShadow = WindowCropGeometry.flatCropRect(
-        windowFrame: window,
-        shadowedBounds: shadowed,
-        includeShadow: true,
-        displayQuartzFrame: display
-    )
-    #expect(withShadow == CGRect(x: 460, y: 360, width: 480, height: 380))
-
-    let withoutShadow = WindowCropGeometry.flatCropRect(
-        windowFrame: window,
-        shadowedBounds: shadowed,
-        includeShadow: false,
-        displayQuartzFrame: display
-    )
-    #expect(withoutShadow == CGRect(x: 500, y: 400, width: 400, height: 300))
-}
-
-@Test
-func cropFallsBackToTheFrameWhenShadowedBoundsAreMissingOrNonsense() {
-    let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let window = CGRect(x: 500, y: 400, width: 400, height: 300)
-
-    let missing = WindowCropGeometry.flatCropRect(
-        windowFrame: window,
-        shadowedBounds: nil,
-        includeShadow: true,
-        displayQuartzFrame: display
-    )
-    #expect(missing == window)
-
-    // Shadowed bounds that do not enclose the frame are rejected.
-    let nonsense = WindowCropGeometry.flatCropRect(
-        windowFrame: window,
-        shadowedBounds: CGRect(x: 600, y: 500, width: 100, height: 100),
-        includeShadow: true,
-        displayQuartzFrame: display
-    )
-    #expect(nonsense == window)
-}
-
-@Test
-func shadowedBoundsExpandTheFramePerEdge() {
-    // Window occupies a 100×80 px box inside the capture; the shadowed box
-    // is 20 px wider on each side, 10 above, 30 below, at 2 px per point
-    // (frame is 50×40 points).
-    let bounds = WindowCropGeometry.shadowedBounds(
-        windowBox: CGRect(x: 40, y: 20, width: 100, height: 80),
-        shadowBox: CGRect(x: 20, y: 10, width: 140, height: 120),
-        frame: CGRect(x: 500, y: 300, width: 50, height: 40)
-    )
-    #expect(bounds == CGRect(x: 490, y: 295, width: 70, height: 60))
-}
-
-@Test
-func degenerateShadowBoxesProduceNoBounds() {
-    let frame = CGRect(x: 0, y: 0, width: 50, height: 40)
-    // Identical boxes: no shadow margin measured.
-    #expect(WindowCropGeometry.shadowedBounds(
-        windowBox: CGRect(x: 0, y: 0, width: 100, height: 80),
-        shadowBox: CGRect(x: 0, y: 0, width: 100, height: 80),
-        frame: frame
-    ) == nil)
-    // A "shadow" box smaller than the window box is nonsense.
-    #expect(WindowCropGeometry.shadowedBounds(
-        windowBox: CGRect(x: 0, y: 0, width: 100, height: 80),
-        shadowBox: CGRect(x: 10, y: 10, width: 50, height: 50),
-        frame: frame
-    ) == nil)
-}
-
-@Test
-func opaqueBoundingBoxFindsTheOpaqueRegion() throws {
-    let width = 20, height = 10
-    let ctx = CGContext(
-        data: nil, width: width, height: height,
-        bitsPerComponent: 8, bytesPerRow: 4 * width,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    )!
-    // Opaque block at x 4..<12, and (in bottom-up context coords) y 2..<7 —
-    // raster rows counted from the top are 3..<8.
-    ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-    ctx.fill(CGRect(x: 4, y: 2, width: 8, height: 5))
-    let image = ctx.makeImage()!
-    let snapshot = try #require(PixelSnapshot(image: image))
-    let box = WindowCropGeometry.opaqueBoundingBox(of: snapshot)
-    #expect(box == CGRect(x: 4, y: 3, width: 8, height: 5))
-
-    let empty = CGContext(
-        data: nil, width: 4, height: 4,
-        bitsPerComponent: 8, bytesPerRow: 16,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    )!.makeImage()!
-    let emptySnapshot = try #require(PixelSnapshot(image: empty))
-    #expect(WindowCropGeometry.opaqueBoundingBox(of: emptySnapshot) == nil)
-}
-
-@Test
-func cropIsClampedToTheDisplayAndNilWhenOutside() {
-    let display = CGRect(x: 0, y: 0, width: 1000, height: 800)
-    let hangingOff = WindowCropGeometry.flatCropRect(
-        windowFrame: CGRect(x: 900, y: 700, width: 400, height: 300),
-        shadowedBounds: nil,
-        includeShadow: false,
-        displayQuartzFrame: display
-    )
-    #expect(hangingOff == CGRect(x: 900, y: 700, width: 100, height: 100))
-
-    let outside = WindowCropGeometry.flatCropRect(
-        windowFrame: CGRect(x: 2000, y: 0, width: 400, height: 300),
-        shadowedBounds: nil,
-        includeShadow: false,
-        displayQuartzFrame: display
-    )
-    #expect(outside == nil)
 }

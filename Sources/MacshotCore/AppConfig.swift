@@ -11,14 +11,6 @@ extension KeyedDecodingContainer {
     }
 }
 
-// MARK: - Capture modes
-
-enum CaptureMode: String, Codable, Sendable {
-    case region
-    case window
-    case fullscreen
-}
-
 // MARK: - Pipeline
 
 enum PipelineAction: Equatable, Sendable {
@@ -76,62 +68,20 @@ extension PipelineAction: Codable {
     }
 }
 
-enum PipelineOverride: Equatable, Codable, Sendable {
-    case useGlobal
-    case replace([PipelineAction])
-
-    private enum CodingKeys: String, CodingKey { case mode, actions }
-    private enum Kind: String, Codable { case useGlobal, replace }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch container.decodeOr(.mode, Kind.useGlobal) {
-        case .useGlobal: self = .useGlobal
-        case .replace: self = .replace(container.decodeOr(.actions, []))
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .useGlobal:
-            try container.encode(Kind.useGlobal, forKey: .mode)
-        case .replace(let actions):
-            try container.encode(Kind.replace, forKey: .mode)
-            try container.encode(actions, forKey: .actions)
-        }
-    }
-}
-
+/// The one pipeline, run after every capture. Nothing distinguishes captures
+/// from one another any more, so there is nothing to override it for
+/// (ADR 0012); the stored key stays `global` so a config written back when
+/// overrides existed keeps its action list.
 struct PipelineSettings: Equatable, Codable, Sendable {
-    var global: [PipelineAction] = [.copyImage, .saveToDisk]
-    var region: PipelineOverride = .useGlobal
-    var window: PipelineOverride = .useGlobal
-    var fullscreen: PipelineOverride = .useGlobal
-
-    func actions(for mode: CaptureMode) -> [PipelineAction] {
-        let override: PipelineOverride
-        switch mode {
-        case .region: override = region
-        case .window: override = window
-        case .fullscreen: override = fullscreen
-        }
-        switch override {
-        case .useGlobal: return global
-        case .replace(let actions): return actions
-        }
-    }
+    var actions: [PipelineAction] = [.copyImage, .saveToDisk]
 
     init() {}
 
-    private enum CodingKeys: String, CodingKey { case global, region, window, fullscreen }
+    private enum CodingKeys: String, CodingKey { case actions = "global" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        global = c.decodeOr(.global, [.copyImage, .saveToDisk])
-        region = c.decodeOr(.region, .useGlobal)
-        window = c.decodeOr(.window, .useGlobal)
-        fullscreen = c.decodeOr(.fullscreen, .useGlobal)
+        actions = c.decodeOr(.actions, [.copyImage, .saveToDisk])
     }
 }
 
@@ -275,25 +225,23 @@ struct HotkeyBinding: Equatable, Codable, Hashable, Sendable {
 }
 
 struct HotkeySettings: Equatable, Codable, Sendable {
-    // Defaults: ⌃⇧3 / ⌃⇧4 / ⌃⇧5 mirror the system's ⌘⇧ variants; ⌃⇧C / ⌃⇧M for utilities.
-    var region: HotkeyBinding? = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
-    var window: HotkeyBinding? = HotkeyBinding(keyCode: 23, carbonModifiers: 0x1200)
-    var fullscreen: HotkeyBinding? = HotkeyBinding(keyCode: 20, carbonModifiers: 0x1200)
+    // Defaults: ⌃⇧4 mirrors the system's ⌘⇧4; ⌃⇧C / ⌃⇧M for the utilities.
+    // The key is `capture`, not one of the old per-mode keys: a config written
+    // before the hotkeys collapsed lands on this default (ADR 0010).
+    var capture: HotkeyBinding? = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
     var colorPicker: HotkeyBinding? = HotkeyBinding(keyCode: 8, carbonModifiers: 0x1200)
     var magnifier: HotkeyBinding? = HotkeyBinding(keyCode: 46, carbonModifiers: 0x1200)
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case region, window, fullscreen, colorPicker, magnifier
+        case capture, colorPicker, magnifier
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = HotkeySettings()
-        region = c.decodeOr(.region, defaults.region)
-        window = c.decodeOr(.window, defaults.window)
-        fullscreen = c.decodeOr(.fullscreen, defaults.fullscreen)
+        capture = c.decodeOr(.capture, defaults.capture)
         colorPicker = c.decodeOr(.colorPicker, defaults.colorPicker)
         magnifier = c.decodeOr(.magnifier, defaults.magnifier)
     }
@@ -374,7 +322,6 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     var format = ImageFormat.png
     /// 1–100, applies to jpeg/heic only.
     var quality = 90
-    var includeWindowShadow = true
     /// Training-wheel chrome in the capture overlay: the idle helper card and
     /// the selecting-state hint.
     var showOverlayHints = true
@@ -382,7 +329,7 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case saveDirectory, format, quality, includeWindowShadow, showOverlayHints
+        case saveDirectory, format, quality, showOverlayHints
     }
 
     init(from decoder: Decoder) throws {
@@ -390,7 +337,6 @@ struct CaptureSettings: Equatable, Codable, Sendable {
         saveDirectory = c.decodeOr(.saveDirectory, "~/Pictures/macshot")
         format = c.decodeOr(.format, .png)
         quality = min(100, max(1, c.decodeOr(.quality, 90)))
-        includeWindowShadow = c.decodeOr(.includeWindowShadow, true)
         showOverlayHints = c.decodeOr(.showOverlayHints, true)
     }
 }

@@ -127,25 +127,14 @@ final class PostProcessingPanelView: NSView {
         frame.height - 4 - CGFloat(index + 1) * rowHeight
     }
 
-    /// `carriesOwnFrame` is the window-companion path: the window already has
-    /// its own corners and its own title bar, so those two controls are
-    /// disabled — not hidden, so the control set stays where the user left it —
-    /// and say why.
-    func configure(_ settings: BeautifySettings, carriesOwnFrame: Bool = false) {
+    func configure(_ settings: BeautifySettings) {
         for swatch in swatches { swatch.isActive = swatch.styleID == settings.styleID }
         paddingSlider.value = settings.paddingFraction
         radiusSlider.value = settings.cornerRadius
         shadowControl.selectedIndex =
             ShadowIntensity.allCases.firstIndex(of: settings.shadow) ?? 0
         windowFrameToggle.isOn = settings.windowFrame
-
-        radiusSlider.isEnabled = !carriesOwnFrame
-        windowFrameToggle.isEnabled = !carriesOwnFrame
-        let explanation = "This window already has its own corners and title bar"
-        radiusSlider.toolTip = carriesOwnFrame ? explanation : nil
-        windowFrameToggle.toolTip = carriesOwnFrame
-            ? explanation
-            : "Draw a macOS window frame around the capture"
+        windowFrameToggle.toolTip = "Draw a macOS window frame around the capture"
     }
 }
 

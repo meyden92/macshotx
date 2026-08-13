@@ -23,18 +23,11 @@ struct MenuContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Button("Capture Region") {
-            Task { await CaptureService.captureRegion() }
+        // No keyboard equivalent: the configured global hotkey is the one
+        // combination that starts a capture, and it lives in Settings → Hotkeys.
+        Button("Capture") {
+            Task { await CaptureService.captureOverlay() }
         }
-        .keyboardShortcut("1", modifiers: [.command, .shift])
-        Button("Capture Window") {
-            Task { await CaptureService.captureWindow() }
-        }
-        .keyboardShortcut("2", modifiers: [.command, .shift])
-        Button("Capture Fullscreen") {
-            Task { await CaptureService.captureFullscreen() }
-        }
-        .keyboardShortcut("3", modifiers: [.command, .shift])
         Divider()
         Button("Pick Color") {
             Task { await ColorSampler.run(copyToClipboard: true) }
@@ -97,21 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     static func perform(_ action: HotkeyAction) {
-        // Region and Window both open the capture overlay; the hotkey
-        // determines only the initial snap state.
-        if let snapArmed = action.overlayInitialSnapArmed {
-            Task { await CaptureService.captureOverlay(initialSnapArmed: snapArmed) }
-            return
-        }
         switch action {
-        case .captureFullscreen:
-            Task { await CaptureService.captureFullscreen() }
+        case .capture:
+            Task { await CaptureService.captureOverlay() }
         case .colorPicker:
             Task { await ColorSampler.run(copyToClipboard: true) }
         case .magnifier:
             Task { await ColorSampler.run(copyToClipboard: false) }
-        case .captureRegion, .captureWindow:
-            break // handled above
         }
     }
 

@@ -26,15 +26,14 @@ private func makeStore() -> (ConfigStore, URL) {
     let saveDir = dir.appendingPathComponent("saves", isDirectory: true)
     store.update {
         $0.capture.saveDirectory = saveDir.path
-        $0.filenames.template = "shot_%mode"
+        $0.filenames.template = "shot_%app"
     }
     return (store, dir)
 }
 
-private func artifact(mode: CaptureMode = .fullscreen) -> CaptureArtifact {
+private func artifact() -> CaptureArtifact {
     CaptureArtifact(
         image: makeImage(),
-        mode: mode,
         appName: "TestApp",
         windowTitle: "Test Window"
     )
@@ -63,13 +62,13 @@ func encoderProducesAllFormats() throws {
 func saveActionWritesFileAndRecordsRecent() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.global = [.saveToDisk] }
+    store.update { $0.pipeline.actions = [.saveToDisk] }
 
     let runner = PipelineRunner(store: store)
     let outcome = try await runner.execute(artifact())
 
     let saved = try #require(outcome.savedURL)
-    #expect(saved.lastPathComponent == "shot_fullscreen.png")
+    #expect(saved.lastPathComponent == "shot_TestApp.png")
     #expect(FileManager.default.fileExists(atPath: saved.path))
     #expect(store.config.recents.first == saved.path)
 }
@@ -79,16 +78,16 @@ func saveActionWritesFileAndRecordsRecent() async throws {
 func saveAvoidsCollisionsWithSuffix() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.global = [.saveToDisk] }
+    store.update { $0.pipeline.actions = [.saveToDisk] }
 
     let runner = PipelineRunner(store: store)
     let first = try await runner.execute(artifact())
     let second = try await runner.execute(artifact())
     let third = try await runner.execute(artifact())
 
-    #expect(first.savedURL?.lastPathComponent == "shot_fullscreen.png")
-    #expect(second.savedURL?.lastPathComponent == "shot_fullscreen_2.png")
-    #expect(third.savedURL?.lastPathComponent == "shot_fullscreen_3.png")
+    #expect(first.savedURL?.lastPathComponent == "shot_TestApp.png")
+    #expect(second.savedURL?.lastPathComponent == "shot_TestApp_2.png")
+    #expect(third.savedURL?.lastPathComponent == "shot_TestApp_3.png")
 }
 
 @MainActor
@@ -97,7 +96,7 @@ func formatOverrideReplacesLiteralTemplateExtension() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.global = [.saveToDisk]
+        $0.pipeline.actions = [.saveToDisk]
         $0.filenames.template = "shot.png"
         $0.capture.format = .jpeg
     }
@@ -113,15 +112,15 @@ func templateSubfoldersAreCreated() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.global = [.saveToDisk]
-        $0.filenames.template = "%mode/%app_shot"
+        $0.pipeline.actions = [.saveToDisk]
+        $0.filenames.template = "%app/%window_shot"
     }
 
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact(mode: .window))
+    let outcome = try await runner.execute(artifact())
     let saved = try #require(outcome.savedURL)
-    #expect(saved.lastPathComponent == "TestApp_shot.png")
-    #expect(saved.deletingLastPathComponent().lastPathComponent == "window")
+    #expect(saved.lastPathComponent == "Test_Window_shot.png")
+    #expect(saved.deletingLastPathComponent().lastPathComponent == "TestApp")
 }
 
 // MARK: - Clipboard
@@ -131,7 +130,7 @@ func templateSubfoldersAreCreated() async throws {
 func copyImagePutsBitmapOnPasteboard() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.global = [.copyImage] }
+    store.update { $0.pipeline.actions = [.copyImage] }
 
     NSPasteboard.general.clearContents()
     let runner = PipelineRunner(store: store)
@@ -144,7 +143,7 @@ func copyImagePutsBitmapOnPasteboard() async throws {
 func copyURLWithoutUploadHalts() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.global = [.copyURL] }
+    store.update { $0.pipeline.actions = [.copyURL] }
 
     let runner = PipelineRunner(store: store)
     await #expect(throws: PipelineError.self) {
@@ -161,7 +160,7 @@ func shellReceivesPathAsArgAndEnv() async throws {
     defer { try? FileManager.default.removeItem(at: dir) }
     let marker = dir.appendingPathComponent("marker.txt").path
     store.update {
-        $0.pipeline.global = [
+        $0.pipeline.actions = [
             .saveToDisk,
             .runShell(command: "test -f \"$1\" && test \"$1\" = \"$MACSHOT_PATH\" && echo \"$1\" > \(marker)")
         ]
@@ -182,7 +181,7 @@ func shellWithoutPriorSaveGetsTempFile() async throws {
     defer { try? FileManager.default.removeItem(at: dir) }
     let marker = dir.appendingPathComponent("marker.txt").path
     store.update {
-        $0.pipeline.global = [.runShell(command: "echo \"$MACSHOT_PATH\" > \(marker)")]
+        $0.pipeline.actions = [.runShell(command: "echo \"$MACSHOT_PATH\" > \(marker)")]
     }
 
     let runner = PipelineRunner(store: store)
@@ -201,7 +200,7 @@ func failingShellHaltsPipeline() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.global = [
+        $0.pipeline.actions = [
             .runShell(command: "exit 3"),
             .saveToDisk
         ]
@@ -225,7 +224,7 @@ func failingShellHaltsPipeline() async {
 func uploadToUnknownDestinationHalts() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.global = [.upload(destination: "nope")] }
+    store.update { $0.pipeline.actions = [.upload(destination: "nope")] }
 
     let runner = PipelineRunner(store: store)
     await #expect(throws: PipelineError.self) {
@@ -241,7 +240,7 @@ func counterAdvancesPerSave() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.global = [.saveToDisk]
+        $0.pipeline.actions = [.saveToDisk]
         $0.filenames.template = "c%counter"
         $0.filenames.counterPadding = 3
     }
@@ -296,7 +295,7 @@ func anAlphaBearingCaptureIsSavedAsPngEvenWhenJpegIsConfigured() async throws {
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update { $0.capture.format = .jpeg }
 
-    store.update { $0.pipeline.global = [.saveToDisk] }
+    store.update { $0.pipeline.actions = [.saveToDisk] }
 
     var alphaArtifact = artifact()
     alphaArtifact.mayContainTransparency = true

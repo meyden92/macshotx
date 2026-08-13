@@ -208,7 +208,7 @@ func aMeshBackdropIsAnActualGradientAndIsCachedBySizeAndStyle() {
 @MainActor
 @Test
 func aSourceWithTransparentCornersLetsTheBackdropThroughWithoutAHalo() {
-    // A window companion image's shape: opaque content, transparent corners.
+    // What background removal leaves behind: opaque content, transparent edges.
     let ctx = CGContext(
         data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(),

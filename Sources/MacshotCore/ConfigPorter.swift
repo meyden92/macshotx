@@ -132,17 +132,9 @@ enum ConfigPorter {
     /// Shell commands an imported config would run — surfaced before
     /// activation (PRD §15: malicious config sharing mitigation).
     static func shellCommands(in config: AppConfig) -> [String] {
-        var pipelines = [config.pipeline.global]
-        for override in [config.pipeline.region, config.pipeline.window, config.pipeline.fullscreen] {
-            if case .replace(let actions) = override {
-                pipelines.append(actions)
-            }
-        }
-        return pipelines.flatMap { actions in
-            actions.compactMap { action in
-                if case .runShell(let command) = action { return command }
-                return nil
-            }
+        config.pipeline.actions.compactMap { action in
+            if case .runShell(let command) = action { return command }
+            return nil
         }
     }
 
