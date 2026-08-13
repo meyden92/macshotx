@@ -1,5 +1,7 @@
 # Preview and bake share one compositor
 
+> **Amended by #8 (2026-08-13).** Background removal was dropped from the app, so the composition order below no longer has that stage: it now runs source pixels, image effects, annotations, corner radius and window frame, drop shadow, backdrop.
+
 `PostProcessingCompositor` (`PostProcessing.swift`) exposes a pure `layout` function — pixel sizes in, an integral canvas size and capture rect out — and a `render` function that composites a source image according to `BeautifySettings`. The capture overlay's live preview and its confirmed bake both call the same two functions, differing only in the pixel scale passed in.
 
 ## Considered Options

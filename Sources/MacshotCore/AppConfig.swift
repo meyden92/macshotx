@@ -301,19 +301,52 @@ enum ImageFormat: String, Codable, Sendable, CaseIterable {
         case .heic: return "heic"
         }
     }
+}
 
-    /// JPEG cannot store transparency. HEIC can — verified against the system
-    /// encoder by round-tripping a transparent image, not assumed.
-    var supportsAlpha: Bool { self != .jpeg }
+/// Which corner of the capture the watermark sits in.
+enum WatermarkCorner: String, Codable, CaseIterable, Sendable {
+    case topLeft, topRight, bottomLeft, bottomRight
 
-    /// The format a run should actually use. Resolved in one place so the
-    /// encode call and the filename extension can never disagree and write PNG
-    /// bytes into a `.jpg`. Flattening the transparency onto a colour was
-    /// rejected: it destroys the thing the user clicked a button to create.
-    func effective(mayContainTransparency: Bool) -> ImageFormat {
-        guard mayContainTransparency, !supportsAlpha else { return self }
-        Log.info("\(rawValue) cannot store transparency; writing png instead")
-        return .png
+    var label: String {
+        switch self {
+        case .topLeft: return "Top left"
+        case .topRight: return "Top right"
+        case .bottomLeft: return "Bottom left"
+        case .bottomRight: return "Bottom right"
+        }
+    }
+}
+
+/// A logo composited into every capture. Size and margin are percentages of the
+/// capture's width rather than pixels, so one setting looks the same on a Retina
+/// fullscreen shot and on a small crop.
+struct WatermarkSettings: Equatable, Codable, Sendable {
+    /// Separate from having a logo configured, so the logo survives turning it
+    /// off and back on.
+    var enabled = false
+    var imagePath = ""
+    var corner = WatermarkCorner.bottomRight
+    /// Logo width as a percentage of the capture's width.
+    var scalePercent = 15
+    /// Distance from the two edges it sits against, as a percentage of the
+    /// capture's width.
+    var marginPercent = 2
+    var opacityPercent = 80
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, imagePath, corner, scalePercent, marginPercent, opacityPercent
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = c.decodeOr(.enabled, false)
+        imagePath = c.decodeOr(.imagePath, "")
+        corner = c.decodeOr(.corner, .bottomRight)
+        scalePercent = min(100, max(1, c.decodeOr(.scalePercent, 15)))
+        marginPercent = min(40, max(0, c.decodeOr(.marginPercent, 2)))
+        opacityPercent = min(100, max(1, c.decodeOr(.opacityPercent, 80)))
     }
 }
 
@@ -325,11 +358,12 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     /// Training-wheel chrome in the capture overlay: the idle helper card and
     /// the selecting-state hint.
     var showOverlayHints = true
+    var watermark = WatermarkSettings()
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case saveDirectory, format, quality, showOverlayHints
+        case saveDirectory, format, quality, showOverlayHints, watermark
     }
 
     init(from decoder: Decoder) throws {
@@ -338,6 +372,7 @@ struct CaptureSettings: Equatable, Codable, Sendable {
         format = c.decodeOr(.format, .png)
         quality = min(100, max(1, c.decodeOr(.quality, 90)))
         showOverlayHints = c.decodeOr(.showOverlayHints, true)
+        watermark = c.decodeOr(.watermark, WatermarkSettings())
     }
 }
 

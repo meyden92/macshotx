@@ -213,3 +213,58 @@ enum MeasureGeometry {
         )
     }
 }
+
+/// What holding Shift does to a drawing drag: directional tools are pulled onto
+/// the nearest 45° ray from where the drag began, rectangular ones become
+/// square. Pure functions of the drag's two ends and nothing else, so the
+/// overlay can re-run them the instant Shift goes down or up mid-drag.
+enum ShiftConstraint {
+    /// `point` projected onto the nearest 45° ray through `anchor`. Projection
+    /// rather than rotation, so a mostly-horizontal drag ends under the cursor's
+    /// x — the same feel as the measure tool's own tolerance snap.
+    static func angleSnapped(_ point: CGPoint, anchoredAt anchor: CGPoint) -> CGPoint {
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        guard dx != 0 || dy != 0 else { return anchor }
+
+        let step = CGFloat.pi / 4
+        let ray = (atan2(dy, dx) / step).rounded() * step
+        let unit = CGPoint(x: cos(ray), y: sin(ray))
+        let along = dx * unit.x + dy * unit.y
+        return CGPoint(x: anchor.x + unit.x * along, y: anchor.y + unit.y * along)
+    }
+
+    /// The furthest point along the `anchor` → `point` ray that still lies
+    /// inside `bounds`. Clamping x and y independently would pull the endpoint
+    /// off the ray — which, for a constrained drag, means silently drawing a
+    /// stroke that is no longer at 45°.
+    static func clamped(_ point: CGPoint, from anchor: CGPoint, within bounds: CGRect) -> CGPoint {
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        var scale: CGFloat = 1
+        if dx > 0 { scale = min(scale, (bounds.maxX - anchor.x) / dx) }
+        if dx < 0 { scale = min(scale, (bounds.minX - anchor.x) / dx) }
+        if dy > 0 { scale = min(scale, (bounds.maxY - anchor.y) / dy) }
+        if dy < 0 { scale = min(scale, (bounds.minY - anchor.y) / dy) }
+        scale = max(0, scale)
+        return CGPoint(x: anchor.x + dx * scale, y: anchor.y + dy * scale)
+    }
+
+    /// The square a drag from `anchor` to `point` makes: the longer of the two
+    /// spans on both sides, growing in the direction dragged so the shape never
+    /// flips across the anchor. Same convention as the Selection's own
+    /// shift-square (`SelectionGeometry.ratioRect`), deliberately without its
+    /// minimum size and display-fit clamps — an annotation may hang off the
+    /// edge and be cropped, a Selection may not.
+    static func squared(from anchor: CGPoint, to point: CGPoint) -> CGRect {
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        let side = max(abs(dx), abs(dy))
+        return CGRect(
+            x: dx < 0 ? anchor.x - side : anchor.x,
+            y: dy < 0 ? anchor.y - side : anchor.y,
+            width: side,
+            height: side
+        )
+    }
+}

@@ -25,6 +25,10 @@ _Avoid_: Window detection, window picking, hover-to-pick
 Selection edges magnetically snapping to strong color edges in the frozen screen image while drawing, moving, or resizing the selection. Bypassable with a modifier key.
 _Avoid_: Edge snap, magnetic edges, pixel snap
 
+**Shift constraint**:
+What holding Shift does to a drawing drag: directional annotations (line, arrow, measure) snap onto the nearest 45° ray from where the drag began, and rectangular ones become square. Live — releasing Shift mid-drag returns to free drawing. Distinct from Boundary snap, which pulls the Selection onto colour edges.
+_Avoid_: Angle snap, constrain mode, aspect lock (reserved for the Resolution box's ratio lock)
+
 **Resolution box**:
 The editable width × height control attached to the selection, including aspect-ratio locks and size presets (armable before or after drawing).
 _Avoid_: Dimension readout, size badge, W×H label
@@ -63,11 +67,15 @@ _Avoid_: Prettify, frame, decorate
 
 **Backdrop**:
 The decorative surface — solid colour, linear gradient or mesh gradient — a beautified capture is composited onto.
-_Avoid_: Background (reserved for what background removal takes away), wallpaper, canvas
+_Avoid_: Background, wallpaper, canvas
 
 **Composition**:
-The composited result of the capture plus its post-processing — the single image the pipeline receives when a capture is confirmed.
+The composited result of the capture plus its post-processing, produced when a capture is confirmed. The Watermark is stamped onto it afterwards, so what the pipeline receives is the Composition only when no watermark is configured.
 _Avoid_: Output, final image, render
+
+**Watermark**:
+A configured logo stamped into a corner of every capture on its way to the pipeline. Not post-processing and not an annotation: it is a settings-level constant, never previewed in the capture overlay and not removable per capture. Size and margin are percentages of the capture's width, so one setting looks the same at any capture size.
+_Avoid_: Logo overlay, branding, stamp
 
 **Image effects**:
 The non-destructive brightness, contrast, saturation and sharpness adjustment of the capture content. Applies to the capture only: never to annotations, never to the backdrop.

@@ -160,17 +160,9 @@ struct EffectPreset: Equatable, Sendable {
 struct CompositionState: Equatable, Sendable {
     var beautify = BeautifySettings()
     var effects = EffectValues.neutral
-    /// Set once a background removal has been applied. Not the mask itself —
-    /// this is state, the mask is pixels.
-    var backgroundRemoved = false
 
     static let neutral = CompositionState()
     var isNeutral: Bool { self == CompositionState.neutral }
-
-    /// True when the composed image can contain transparency: an isolated
-    /// subject with no backdrop behind it. Decided from state rather than by
-    /// scanning pixels — deterministic, O(1), and honest about intent.
-    var mayContainTransparency: Bool { backgroundRemoved && !beautify.enabled }
 }
 
 // MARK: - Layout
@@ -254,9 +246,9 @@ enum PostProcessingCompositor {
 
     /// Stages 5–7 of the composition order: the corner-radius clip and optional
     /// window frame, the drop shadow, and the composite onto the backdrop.
-    /// Earlier stages — background removal, effects, annotations — are already
-    /// in `source` by the time it gets here, which is exactly why annotations
-    /// are clipped by the corner radius and effects never touch the backdrop.
+    /// Earlier stages — effects, annotations — are already in `source` by the
+    /// time it gets here, which is exactly why annotations are clipped by the
+    /// corner radius and effects never touch the backdrop.
     @MainActor
     static func render(
         _ source: CGImage, settings: BeautifySettings, scale: CGFloat

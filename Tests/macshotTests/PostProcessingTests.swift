@@ -208,7 +208,8 @@ func aMeshBackdropIsAnActualGradientAndIsCachedBySizeAndStyle() {
 @MainActor
 @Test
 func aSourceWithTransparentCornersLetsTheBackdropThroughWithoutAHalo() {
-    // What background removal leaves behind: opaque content, transparent edges.
+    // A source with transparent edges: the backdrop has to show through them
+    // cleanly, whatever put them there.
     let ctx = CGContext(
         data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(),

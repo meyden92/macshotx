@@ -1,5 +1,7 @@
 # Post-processing is composited in the capture overlay, not in the Pipeline
 
+> **Amended by #8 (2026-08-13).** Background removal was dropped from the app, and with it the alpha-safe output format: nothing can produce transparency any more, so the artifact no longer carries a may-contain-transparency flag. Everything below still holds for beautify and image effects.
+
 Beautify (backdrop, padding, corner radius, shadow, window frame), image effects (brightness, contrast, saturation, sharpness) and background removal are capture-overlay state, previewed live over the frozen screen and composited once when the capture is confirmed. The Pipeline's contract is unchanged: it receives one finished image and runs the configured actions on it. There is no new `Pipeline action`, no new per-mode override, and no Settings switch that turns any of it on.
 
 ## Considered Options

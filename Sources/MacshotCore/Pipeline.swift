@@ -9,10 +9,6 @@ struct CaptureArtifact {
     /// Frontmost app / window title at trigger time, for %app / %window tokens.
     let appName: String?
     let windowTitle: String?
-    /// Set by the overlay from its composition state rather than by scanning
-    /// pixels — deterministic, O(1), and honest about intent. The pipeline uses
-    /// it to pick a format that can actually store what was made.
-    var mayContainTransparency = false
 }
 
 enum PipelineError: LocalizedError {
@@ -207,7 +203,7 @@ struct PipelineRunner {
             let config = store.config.capture
             let data = try ImageEncoder.encode(
                 outcome.image,
-                format: effectiveFormat(for: artifact),
+                format: outputFormat,
                 quality: config.quality
             )
             let filename = try resolveName(artifact: artifact, outcome: &outcome)
@@ -262,13 +258,10 @@ struct PipelineRunner {
         }
     }
 
-    /// The one place the output format is resolved, so encoding and the
-    /// filename's extension always agree.
-    private func effectiveFormat(for artifact: CaptureArtifact) -> ImageFormat {
-        store.config.capture.format.effective(
-            mayContainTransparency: artifact.mayContainTransparency
-        )
-    }
+    /// The one place the output format is resolved, so the encode call and the
+    /// filename's extension can never disagree and write JPEG bytes into a
+    /// `.png`.
+    private var outputFormat: ImageFormat { store.config.capture.format }
 
     // MARK: - Filenames and files
 
@@ -299,7 +292,7 @@ struct PipelineRunner {
         if !literalExtension.isEmpty {
             expanded = String(expanded.dropLast(literalExtension.count))
         }
-        expanded += ".\(effectiveFormat(for: artifact).fileExtension)"
+        expanded += ".\(outputFormat.fileExtension)"
 
         outcome.expandedName = expanded
         return expanded
@@ -315,7 +308,7 @@ struct PipelineRunner {
     ) throws -> URL {
         let config = store.config.capture
         let data = try ImageEncoder.encode(
-            image, format: effectiveFormat(for: artifact), quality: config.quality
+            image, format: outputFormat, quality: config.quality
         )
         let name = try resolveName(artifact: artifact, outcome: &outcome)
 
