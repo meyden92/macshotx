@@ -19,7 +19,6 @@ private func makeContext() -> FilenameTemplate.Context {
     context.date = fixedDate()
     context.windowTitle = "Grafana – Dashboards"
     context.appName = "Safari"
-    context.mode = "region"
     context.host = "mymac"
     context.user = "deme"
     context.counter = 7
@@ -38,9 +37,10 @@ func dateTokensExpand() {
 }
 
 @Test
-func modeDoesNotCollideWithMonthToken() {
-    let result = FilenameTemplate.expand("%mode-%mo", context: makeContext())
-    #expect(result == "region-05")
+func longerTokensWinOverTheirPrefixes() {
+    // %ms must not be read as %m + "s", and %mo must not eat %ms.
+    let result = FilenameTemplate.expand("%mo-%mi-%ms", context: makeContext())
+    #expect(result == "05-31-007")
 }
 
 @Test
@@ -95,7 +95,7 @@ func validationRejectsEmptyResults() {
     #expect(!FilenameTemplate.isValid(".png"))      // bare extension is not a name
     #expect(FilenameTemplate.isValid("%window"))
     #expect(FilenameTemplate.isValid("Screenshot_%y-%mo-%d_%h-%mi-%s.png"))
-    #expect(FilenameTemplate.isValid("%mode/%y"))
+    #expect(FilenameTemplate.isValid("%app/%y"))
 }
 
 @Test

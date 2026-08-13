@@ -1,10 +1,11 @@
 import AppKit
 import Foundation
 
-/// The canonical artifact a capture produces, fed into the pipeline (PRD §6.6).
+/// The canonical artifact a capture produces, fed into the pipeline. Nothing
+/// on it records how the Selection was seeded: there are no capture modes for
+/// it to record (ADR 0012).
 struct CaptureArtifact {
     let image: CGImage
-    let mode: CaptureMode
     /// Frontmost app / window title at trigger time, for %app / %window tokens.
     let appName: String?
     let windowTitle: String?
@@ -85,8 +86,8 @@ final class RetryStore {
     }
 }
 
-/// Executes the configured action list for a capture mode, in order,
-/// halting on the first failure (PRD §6.6.3).
+/// Executes the configured action list, in order, halting on the first
+/// failure (PRD §6.6.3).
 @MainActor
 struct PipelineRunner {
     let store: ConfigStore
@@ -97,9 +98,8 @@ struct PipelineRunner {
 
     /// Run the pipeline and surface success/failure notifications.
     func run(_ artifact: CaptureArtifact) async {
-        let actions = store.config.pipeline.actions(for: artifact.mode)
         await run(
-            actions: actions,
+            actions: store.config.pipeline.actions,
             artifact: artifact,
             outcome: PipelineOutcome(image: artifact.image)
         )
@@ -137,9 +137,9 @@ struct PipelineRunner {
             )
         } catch is CancellationError {
             // The user cancelled in the editor — not a failure.
-            Log.info("Pipeline cancelled (\(artifact.mode.rawValue))")
+            Log.info("Pipeline cancelled")
         } catch {
-            Log.error("Pipeline failed (\(artifact.mode.rawValue)): \(error)")
+            Log.error("Pipeline failed: \(error)")
             RetryStore.shared.store(RetryStore.Pending(
                 artifact: artifact,
                 actions: Array(actions[index...]),
@@ -156,10 +156,9 @@ struct PipelineRunner {
 
     /// Core execution, separated from notifications for testability.
     func execute(_ artifact: CaptureArtifact) async throws -> PipelineOutcome {
-        let actions = store.config.pipeline.actions(for: artifact.mode)
         var outcome = PipelineOutcome(image: artifact.image)
 
-        for action in actions {
+        for action in store.config.pipeline.actions {
             try await perform(action, artifact: artifact, outcome: &outcome)
         }
         return outcome
@@ -172,14 +171,13 @@ struct PipelineRunner {
     ) async throws {
         switch action {
         case .openInEditor:
-            // Region mode: the overlay annotator already satisfied this step
-            // (PRD §6.5.2). Window/fullscreen post-capture editor opens here.
-            if artifact.mode != .region {
-                guard let edited = await EditorPresenter.edit(image: outcome.image) else {
-                    throw CancellationError()
-                }
-                outcome.image = edited
+            // Every capture already passed through the overlay's annotator, so
+            // this is a deliberate second pass: it opens whenever it is in the
+            // pipeline rather than for the modes that used to skip the overlay.
+            guard let edited = await EditorPresenter.edit(image: outcome.image) else {
+                throw CancellationError()
             }
+            outcome.image = edited
 
         case .copyImage:
             let pasteboard = NSPasteboard.general
@@ -288,7 +286,6 @@ struct PipelineRunner {
         var context = FilenameTemplate.Context()
         context.windowTitle = artifact.windowTitle
         context.appName = artifact.appName
-        context.mode = artifact.mode.rawValue
         context.counterPadding = filenames.counterPadding
         if filenames.template.contains("%counter") {
             context.counter = store.nextCounter(forFolder: directory)

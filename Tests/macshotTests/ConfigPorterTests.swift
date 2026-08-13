@@ -5,9 +5,8 @@ import Testing
 private func sampleConfig() -> AppConfig {
     var config = AppConfig()
     config.capture.format = .jpeg
-    config.filenames.template = "%mode/%counter"
-    config.pipeline.global = [.saveToDisk, .runShell(command: "echo hi")]
-    config.pipeline.window = .replace([.runShell(command: "open $1")])
+    config.filenames.template = "%app/%counter"
+    config.pipeline.actions = [.saveToDisk, .runShell(command: "echo hi")]
     var destination = Destination()
     destination.name = "bucket"
     destination.kind = .s3
@@ -82,7 +81,9 @@ func garbageIsRejected() {
 }
 
 @Test
-func shellCommandsAreSurfacedFromAllPipelines() {
-    let commands = ConfigPorter.shellCommands(in: sampleConfig())
+func shellCommandsAreSurfacedFromThePipeline() {
+    var config = sampleConfig()
+    config.pipeline.actions.append(.runShell(command: "open $1"))
+    let commands = ConfigPorter.shellCommands(in: config)
     #expect(commands == ["echo hi", "open $1"])
 }

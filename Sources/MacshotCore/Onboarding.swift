@@ -113,7 +113,7 @@ struct OnboardingView: View {
                     .foregroundStyle(screenRecordingGranted ? .green : .orange)
                 VStack(alignment: .leading) {
                     Text("Screen Recording").bold()
-                    Text("Required for every capture mode.")
+                    Text("Required for every capture.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

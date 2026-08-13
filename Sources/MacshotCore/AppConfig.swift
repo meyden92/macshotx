@@ -11,14 +11,6 @@ extension KeyedDecodingContainer {
     }
 }
 
-// MARK: - Capture modes
-
-enum CaptureMode: String, Codable, Sendable {
-    case region
-    case window
-    case fullscreen
-}
-
 // MARK: - Pipeline
 
 enum PipelineAction: Equatable, Sendable {
@@ -76,62 +68,20 @@ extension PipelineAction: Codable {
     }
 }
 
-enum PipelineOverride: Equatable, Codable, Sendable {
-    case useGlobal
-    case replace([PipelineAction])
-
-    private enum CodingKeys: String, CodingKey { case mode, actions }
-    private enum Kind: String, Codable { case useGlobal, replace }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch container.decodeOr(.mode, Kind.useGlobal) {
-        case .useGlobal: self = .useGlobal
-        case .replace: self = .replace(container.decodeOr(.actions, []))
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .useGlobal:
-            try container.encode(Kind.useGlobal, forKey: .mode)
-        case .replace(let actions):
-            try container.encode(Kind.replace, forKey: .mode)
-            try container.encode(actions, forKey: .actions)
-        }
-    }
-}
-
+/// The one pipeline, run after every capture. Nothing distinguishes captures
+/// from one another any more, so there is nothing to override it for
+/// (ADR 0012); the stored key stays `global` so a config written back when
+/// overrides existed keeps its action list.
 struct PipelineSettings: Equatable, Codable, Sendable {
-    var global: [PipelineAction] = [.copyImage, .saveToDisk]
-    var region: PipelineOverride = .useGlobal
-    var window: PipelineOverride = .useGlobal
-    var fullscreen: PipelineOverride = .useGlobal
-
-    func actions(for mode: CaptureMode) -> [PipelineAction] {
-        let override: PipelineOverride
-        switch mode {
-        case .region: override = region
-        case .window: override = window
-        case .fullscreen: override = fullscreen
-        }
-        switch override {
-        case .useGlobal: return global
-        case .replace(let actions): return actions
-        }
-    }
+    var actions: [PipelineAction] = [.copyImage, .saveToDisk]
 
     init() {}
 
-    private enum CodingKeys: String, CodingKey { case global, region, window, fullscreen }
+    private enum CodingKeys: String, CodingKey { case actions = "global" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        global = c.decodeOr(.global, [.copyImage, .saveToDisk])
-        region = c.decodeOr(.region, .useGlobal)
-        window = c.decodeOr(.window, .useGlobal)
-        fullscreen = c.decodeOr(.fullscreen, .useGlobal)
+        actions = c.decodeOr(.actions, [.copyImage, .saveToDisk])
     }
 }
 

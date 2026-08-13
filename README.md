@@ -17,12 +17,12 @@ product specification.
   Undo/redo, per-annotation move/resize, per-tool styles that persist across
   sessions.
 - **Post-capture editor** with the same toolset plus rectangular crop.
-- **Pipeline automation** — an ordered, per-mode-overridable action list runs
-  after every capture: open in editor, copy image, save to disk, upload,
-  copy URL, run shell command, open in app, extract text (OCR). Failures halt
-  the pipeline with a Retry notification (bitmap held for 60 s).
+- **Pipeline automation** — one ordered action list runs after every capture:
+  open in editor, copy image, save to disk, upload, copy URL, run shell
+  command, open in app, extract text (OCR). Failures halt the pipeline with a
+  Retry notification (bitmap held for 60 s).
 - **Filename templates** — ShareX-style tokens: `%y %mo %d %h %mi %s %ms
-  %counter %window %app %mode %host %user %uuid %rand:N`, with live preview
+  %counter %window %app %host %user %uuid %rand:N`, with live preview
   and per-folder counters.
 - **Upload destinations** — S3-compatible (AWS, R2, B2, MinIO, Wasabi; SigV4
   signed, no SDK), WebDAV, SFTP (SSH-key auth), FTP, and ShareX-compatible

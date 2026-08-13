@@ -20,7 +20,6 @@ final class KeyableOverlayWindow: NSWindow {
 final class CaptureOverlaySession {
     struct Commit {
         let image: CGImage
-        let mode: CaptureMode
         let appName: String?
         let windowTitle: String?
         let mayContainTransparency: Bool
@@ -444,7 +443,6 @@ final class CaptureOverlaySession {
         }
         finish(.committed(Commit(
             image: image,
-            mode: .region,
             appName: frontAppName,
             windowTitle: frontWindowTitle,
             mayContainTransparency: overlay.view.mayContainTransparency

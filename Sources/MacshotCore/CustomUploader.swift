@@ -11,8 +11,7 @@ enum CustomUploader {
         contentType: String,
         boundary: String = "macshot-\(UUID().uuidString)"
     ) throws -> URLRequest {
-        var context = FilenameTemplate.Context()
-        context.mode = ""
+        let context = FilenameTemplate.Context()
         func expand(_ template: String) -> String {
             FilenameTemplate.expand(template, context: context)
         }

@@ -25,7 +25,6 @@ enum CaptureService {
             playFeedback()
             await PipelineRunner().run(CaptureArtifact(
                 image: commit.image,
-                mode: commit.mode,
                 appName: commit.appName,
                 windowTitle: commit.windowTitle,
                 mayContainTransparency: commit.mayContainTransparency
