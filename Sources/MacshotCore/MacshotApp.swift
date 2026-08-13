@@ -20,6 +20,7 @@ public struct MacshotApp: App {
 
 struct MenuContent: View {
     @ObservedObject private var store = ConfigStore.shared
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Button("Capture Region") {
@@ -57,8 +58,13 @@ struct MenuContent: View {
             }
             Divider()
         }
-        SettingsLink {
-            Text("Settings…")
+        // Opening the window is not enough: the tray menu belongs to whatever
+        // app was already frontmost, so Settings would come up behind it and
+        // without key focus. Every other window here (editor, wizard, loupe)
+        // activates first for the same reason.
+        Button("Settings…") {
+            NSApp.activate()
+            openSettings()
         }
         Divider()
         Button("Quit macshot") {
@@ -71,6 +77,10 @@ struct MenuContent: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Tray-only: no Dock tile and no Cmd-Tab entry. LSUIElement already says
+        // so for the bundled app; this also covers an unbundled `swift run`.
+        NSApp.setActivationPolicy(.accessory)
+
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         Notifier.registerCategories()
