@@ -2,17 +2,13 @@ import AppKit
 import Carbon.HIToolbox
 
 enum HotkeyAction: String, CaseIterable, Sendable {
-    case captureRegion
-    case captureWindow
-    case captureFullscreen
+    case capture
     case colorPicker
     case magnifier
 
     var label: String {
         switch self {
-        case .captureRegion: return "Capture Region"
-        case .captureWindow: return "Capture Window"
-        case .captureFullscreen: return "Capture Fullscreen"
+        case .capture: return "Capture"
         case .colorPicker: return "Pick Color"
         case .magnifier: return "Magnifier"
         }
@@ -22,9 +18,7 @@ enum HotkeyAction: String, CaseIterable, Sendable {
 extension HotkeySettings {
     func binding(for action: HotkeyAction) -> HotkeyBinding? {
         switch action {
-        case .captureRegion: return region
-        case .captureWindow: return window
-        case .captureFullscreen: return fullscreen
+        case .capture: return capture
         case .colorPicker: return colorPicker
         case .magnifier: return magnifier
         }
@@ -32,9 +26,7 @@ extension HotkeySettings {
 
     mutating func setBinding(_ binding: HotkeyBinding?, for action: HotkeyAction) {
         switch action {
-        case .captureRegion: region = binding
-        case .captureWindow: window = binding
-        case .captureFullscreen: fullscreen = binding
+        case .capture: capture = binding
         case .colorPicker: colorPicker = binding
         case .magnifier: magnifier = binding
         }

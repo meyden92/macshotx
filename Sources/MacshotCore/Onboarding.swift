@@ -75,7 +75,7 @@ struct OnboardingView: View {
                 } else {
                     Button("Try It Now") {
                         onFinish()
-                        Task { await CaptureService.captureRegion() }
+                        Task { await CaptureService.captureOverlay() }
                     }
                     .keyboardShortcut(.defaultAction)
                 }

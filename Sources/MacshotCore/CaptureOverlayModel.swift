@@ -22,19 +22,6 @@ enum OverlayCommitRoute: Equatable, Sendable {
     }
 }
 
-extension HotkeyAction {
-    /// Initial snap state for the capture overlay this action opens; nil for
-    /// actions that do not open the overlay. The whole difference between
-    /// Region and Window entry lives here.
-    var overlayInitialSnapArmed: Bool? {
-        switch self {
-        case .captureRegion: return false
-        case .captureWindow: return true
-        case .captureFullscreen, .colorPicker, .magnifier: return nil
-        }
-    }
-}
-
 /// What a commit route needs at bake time. Carried through the model so a
 /// commit held for a pending image keeps its payload in one place.
 enum OverlayCommitPayload: Equatable {

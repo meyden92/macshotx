@@ -123,13 +123,28 @@ func commitRoutesDeclareTheirCaptureModes() {
     #expect(OverlayCommitRoute.fullscreenKey.captureMode == .fullscreen)
 }
 
+// MARK: - Hotkey actions
+
 @Test
-func hotkeyActionDeterminesOnlyTheInitialSnapState() {
-    #expect(HotkeyAction.captureRegion.overlayInitialSnapArmed == false)
-    #expect(HotkeyAction.captureWindow.overlayInitialSnapArmed == true)
-    #expect(HotkeyAction.captureFullscreen.overlayInitialSnapArmed == nil)
-    #expect(HotkeyAction.colorPicker.overlayInitialSnapArmed == nil)
-    #expect(HotkeyAction.magnifier.overlayInitialSnapArmed == nil)
+func thereIsOneCaptureHotkeyAndTwoUtilityHotkeys() {
+    // No entry point can pre-arm snap or pick what gets captured: the only
+    // capture action there is opens the overlay (ADR 0010).
+    #expect(HotkeyAction.allCases == [.capture, .colorPicker, .magnifier])
+}
+
+@Test
+func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() throws {
+    let legacy = """
+    {
+      "hotkeys": {
+        "region": { "keyCode": 30, "carbonModifiers": 256 },
+        "window": { "keyCode": 31, "carbonModifiers": 256 },
+        "fullscreen": { "keyCode": 32, "carbonModifiers": 256 }
+      }
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(legacy.utf8))
+    #expect(config.hotkeys == HotkeySettings())
 }
 
 // MARK: - Helper card content

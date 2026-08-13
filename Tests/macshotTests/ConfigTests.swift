@@ -34,7 +34,7 @@ func configRoundTripsThroughJSON() throws {
     destination.kind = .s3
     destination.s3.bucket = "shots"
     config.destinations = [destination]
-    config.hotkeys.region = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
+    config.hotkeys.capture = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
     config.counters = ["/tmp/shots": 12]
     config.recents = ["/tmp/shots/a.png"]
 

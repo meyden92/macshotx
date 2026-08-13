@@ -33,17 +33,13 @@ final class CaptureOverlaySession {
         case failed(Error)
     }
 
-    /// The live session, if any. A capture hotkey pressed while the overlay
-    /// is already up re-arms snap on the existing session instead of stacking
-    /// a second set of overlays.
+    /// The live session, if any. The capture hotkey pressed while the overlay
+    /// is already up is a no-op rather than a second set of overlays.
     private static weak var active: CaptureOverlaySession?
 
-    static func run(initialSnapArmed: Bool) async -> Outcome {
-        if let active {
-            active.adoptEntrySnapState(initialSnapArmed)
-            return .cancelled
-        }
-        let session = CaptureOverlaySession(initialSnapArmed: initialSnapArmed)
+    static func run() async -> Outcome {
+        guard active == nil else { return .cancelled }
+        let session = CaptureOverlaySession()
         active = session
         defer { if active === session { active = nil } }
         return await session.run()
@@ -75,13 +71,13 @@ final class CaptureOverlaySession {
     private var continuation: CheckedContinuation<Outcome, Never>?
     private var hasResumed = false
 
-    private init(initialSnapArmed: Bool) {
+    private init() {
         let screens = NSScreen.screens
         self.screens = screens
         self.primaryHeight = screens.first?.frame.height ?? 0
-        self.model = CaptureSessionModel(
-            displayCount: screens.count, snapArmed: initialSnapArmed
-        )
+        // The overlay always starts with snap off: nothing about the capture is
+        // decided before it is on screen (ADR 0010).
+        self.model = CaptureSessionModel(displayCount: screens.count, snapArmed: false)
     }
 
     private func run() async -> Outcome {
@@ -372,13 +368,6 @@ final class CaptureOverlaySession {
 
     private func tabPressed() {
         guard model.toggleSnap() else { return }
-        pushSnapState()
-    }
-
-    /// A capture hotkey fired while this session is live: adopt its snap
-    /// intent (same rule as Tab — only before a selection exists).
-    private func adoptEntrySnapState(_ armed: Bool) {
-        guard model.snapArmed != armed, model.toggleSnap() else { return }
         pushSnapState()
     }
 

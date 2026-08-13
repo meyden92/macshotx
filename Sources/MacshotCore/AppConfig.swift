@@ -275,25 +275,23 @@ struct HotkeyBinding: Equatable, Codable, Hashable, Sendable {
 }
 
 struct HotkeySettings: Equatable, Codable, Sendable {
-    // Defaults: ⌃⇧3 / ⌃⇧4 / ⌃⇧5 mirror the system's ⌘⇧ variants; ⌃⇧C / ⌃⇧M for utilities.
-    var region: HotkeyBinding? = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
-    var window: HotkeyBinding? = HotkeyBinding(keyCode: 23, carbonModifiers: 0x1200)
-    var fullscreen: HotkeyBinding? = HotkeyBinding(keyCode: 20, carbonModifiers: 0x1200)
+    // Defaults: ⌃⇧4 mirrors the system's ⌘⇧4; ⌃⇧C / ⌃⇧M for the utilities.
+    // The key is `capture`, not one of the old per-mode keys: a config written
+    // before the hotkeys collapsed lands on this default (ADR 0010).
+    var capture: HotkeyBinding? = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
     var colorPicker: HotkeyBinding? = HotkeyBinding(keyCode: 8, carbonModifiers: 0x1200)
     var magnifier: HotkeyBinding? = HotkeyBinding(keyCode: 46, carbonModifiers: 0x1200)
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case region, window, fullscreen, colorPicker, magnifier
+        case capture, colorPicker, magnifier
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = HotkeySettings()
-        region = c.decodeOr(.region, defaults.region)
-        window = c.decodeOr(.window, defaults.window)
-        fullscreen = c.decodeOr(.fullscreen, defaults.fullscreen)
+        capture = c.decodeOr(.capture, defaults.capture)
         colorPicker = c.decodeOr(.colorPicker, defaults.colorPicker)
         magnifier = c.decodeOr(.magnifier, defaults.magnifier)
     }

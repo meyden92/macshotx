@@ -29,7 +29,7 @@ product specification.
   `{response}` response parsing). Secrets live in the macOS Keychain.
 - **Utilities** — on-device OCR (Apple Vision), color picker with magnifier
   loupe (hex/RGB/HSL), standalone magnifier.
-- **Global hotkeys** for every capture mode and utility, rebindable in
+- **Global hotkeys** — one for capture, one per utility, rebindable in
   Settings (no Accessibility permission needed).
 - **Zero telemetry.** The only network calls are uploads you configure.
 - Config is plain JSON at `~/Library/Application Support/macshot/config.json`;
@@ -40,9 +40,7 @@ product specification.
 
 | Action | Hotkey |
 |---|---|
-| Capture region | ⌃⇧4 |
-| Capture window | ⌃⇧5 |
-| Capture fullscreen | ⌃⇧3 |
+| Capture | ⌃⇧4 |
 | Pick color | ⌃⇧C |
 | Magnifier | ⌃⇧M |
 
