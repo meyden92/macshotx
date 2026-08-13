@@ -611,6 +611,21 @@ enum Annotation: Equatable, Codable {
 }
 
 extension Annotation {
+    /// Whether holding Shift reshapes this kind mid-draw: true for the shapes
+    /// defined entirely by their drag's two ends. A freehand stroke accumulates
+    /// points and a loupe or callout tracks the cursor, so re-running the
+    /// constraint on those would duplicate points or do nothing.
+    var followsShiftConstraint: Bool {
+        switch self {
+        case .rectangle, .ellipse, .fillRect, .spotlight, .blur, .pixelate,
+             .line, .arrow, .measure:
+            return true
+        case .freehand, .highlighter, .fillFreehand, .text, .callout,
+             .stepMarker, .loupe:
+            return false
+        }
+    }
+
     /// The tool that draws this kind. The style strip keys off it when a placed
     /// annotation takes the strip over from the active tool.
     var tool: Tool {

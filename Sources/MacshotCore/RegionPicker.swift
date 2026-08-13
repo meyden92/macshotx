@@ -1754,7 +1754,10 @@ final class RegionPickerView: NSView {
             // the user can set the wrap width before typing a word.
             resizeTextEditor(from: start, to: point)
         } else if let draft = draftAnnotation, let start = dragStart {
-            draftAnnotation = updatedDraft(draft, dragStart: start, current: point)
+            draftAnnotation = updatedDraft(
+                draft, dragStart: start, current: point,
+                constrained: event.modifierFlags.contains(.shift)
+            )
         }
         needsDisplay = true
     }
@@ -1958,22 +1961,33 @@ final class RegionPickerView: NSView {
         }
     }
 
+    /// `constrained` is Shift: rectangular kinds become square, directional
+    /// ones snap onto a 45° ray. It is read per event rather than latched, so
+    /// releasing Shift mid-drag returns to free drawing on the next tick.
     private func updatedDraft(
         _ draft: Annotation,
         dragStart start: CGPoint,
-        current: CGPoint
+        current: CGPoint,
+        constrained: Bool
     ) -> Annotation {
-        let rect = NSRect(
-            x: min(start.x, current.x),
-            y: min(start.y, current.y),
-            width: abs(current.x - start.x),
-            height: abs(current.y - start.y)
-        )
+        // Only the two shapes Shift has an opinion about are constrained: a
+        // freehand stroke, a loupe or a callout follows the cursor either way.
+        let directed = constrained
+            ? ShiftConstraint.angleSnapped(current, anchoredAt: start)
+            : current
+        let rect = constrained
+            ? ShiftConstraint.squared(from: start, to: current)
+            : NSRect(
+                x: min(start.x, current.x),
+                y: min(start.y, current.y),
+                width: abs(current.x - start.x),
+                height: abs(current.y - start.y)
+            )
         switch draft {
         case let .rectangle(_, style): return .rectangle(rect, style)
         case let .ellipse(_, style): return .ellipse(rect, style)
-        case let .line(from, _, style): return .line(from: from, to: current, style)
-        case let .arrow(from, _, style): return .arrow(from: from, to: current, style)
+        case let .line(from, _, style): return .line(from: from, to: directed, style)
+        case let .arrow(from, _, style): return .arrow(from: from, to: directed, style)
         case let .freehand(points, style): return .freehand(points: points + [current], style)
         case let .highlighter(points, style): return .highlighter(points: points + [current], style)
         case let .callout(anchor, _, content, style):
@@ -1986,7 +2000,12 @@ final class RegionPickerView: NSView {
         case let .stepMarker(_, number, style):
             return .stepMarker(center: current, number: number, style)
         case let .measure(from, _, style):
-            return .measure(from: from, to: measureEndpoint(current, anchoredAt: from), style)
+            // Shift forces the angle; without it the measure's own tolerance
+            // snap still offers the axis when the drag is nearly on it.
+            let end = constrained
+                ? clampedToBounds(directed)
+                : measureEndpoint(current, anchoredAt: from)
+            return .measure(from: from, to: end, style)
         case let .loupe(source, sourceRadius, _, _, style):
             // The lens follows the cursor; its radius keeps tracking the current
             // magnification, so the drag previews what a release will commit.
@@ -2222,6 +2241,17 @@ final class RegionPickerView: NSView {
             }
             selectionGesture = gesture
             layoutChrome()
+            needsDisplay = true
+        } else if let draft = draftAnnotation, draft.followsShiftConstraint,
+                  let start = dragStart, let window {
+            // Shift is live: reshape the draft where the cursor already is,
+            // rather than making the user jiggle the mouse to see it apply.
+            draftAnnotation = updatedDraft(
+                draft,
+                dragStart: start,
+                current: convert(window.mouseLocationOutsideOfEventStream, from: nil),
+                constrained: event.modifierFlags.contains(.shift)
+            )
             needsDisplay = true
         } else if !isBeautifying, let point = lastPointerPoint,
                   toolbar.map({ !$0.frame.contains(point) }) ?? true {

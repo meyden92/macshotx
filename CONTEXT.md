@@ -25,6 +25,10 @@ _Avoid_: Window detection, window picking, hover-to-pick
 Selection edges magnetically snapping to strong color edges in the frozen screen image while drawing, moving, or resizing the selection. Bypassable with a modifier key.
 _Avoid_: Edge snap, magnetic edges, pixel snap
 
+**Shift constraint**:
+What holding Shift does to a drawing drag: directional annotations (line, arrow, measure) snap onto the nearest 45° ray from where the drag began, and rectangular ones become square. Live — releasing Shift mid-drag returns to free drawing. Distinct from Boundary snap, which pulls the Selection onto colour edges.
+_Avoid_: Angle snap, constrain mode, aspect lock (reserved for the Resolution box's ratio lock)
+
 **Resolution box**:
 The editable width × height control attached to the selection, including aspect-ratio locks and size presets (armable before or after drawing).
 _Avoid_: Dimension readout, size badge, W×H label
