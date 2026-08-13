@@ -26,8 +26,7 @@ enum CaptureService {
             await PipelineRunner().run(CaptureArtifact(
                 image: commit.image,
                 appName: commit.appName,
-                windowTitle: commit.windowTitle,
-                mayContainTransparency: commit.mayContainTransparency
+                windowTitle: commit.windowTitle
             ))
         case .cancelled:
             break

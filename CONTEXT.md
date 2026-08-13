@@ -63,7 +63,7 @@ _Avoid_: Prettify, frame, decorate
 
 **Backdrop**:
 The decorative surface — solid colour, linear gradient or mesh gradient — a beautified capture is composited onto.
-_Avoid_: Background (reserved for what background removal takes away), wallpaper, canvas
+_Avoid_: Background, wallpaper, canvas
 
 **Composition**:
 The composited result of the capture plus its post-processing — the single image the pipeline receives when a capture is confirmed.

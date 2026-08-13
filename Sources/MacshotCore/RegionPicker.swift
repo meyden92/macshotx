@@ -42,11 +42,6 @@ final class RegionPickerView: NSView {
     /// full image; the select tool acts as a crop (PRD §6.5.1).
     private let requiresSelection: Bool
     private let onStylesChanged: ((EditorStyles) -> Void)?
-    /// Subject isolation, injected with a default. The only new injection point
-    /// in the phase, and it exists so the "subject found" and "no subject"
-    /// branches are testable without depending on how a model behaves against a
-    /// synthetic bitmap.
-    private let isolateSubject: SubjectIsolator
     private let onBeautifyDefaultsChanged: ((BeautifyDefaults) -> Void)?
     private var renderer: AnnotationRenderer
 
@@ -108,10 +103,8 @@ final class RegionPickerView: NSView {
     /// The whole post-processing state of this capture. Beautify settings and
     /// effect values are deliberately not undo entries — they have their own
     /// toggle and their own reset, and a slider drag would otherwise flood the
-    /// stack. Background removal is, because it is one destructive-looking act.
+    /// stack.
     private var composition: CompositionState
-    /// The subject mask a background removal produced, in the crop's own pixels.
-    private var subjectMask: CGImage?
     /// The composed preview, rebuilt only when the composition or the region it
     /// applies to changes — a slider drag would otherwise re-render the whole
     /// composition on every frame of every redraw.
@@ -125,9 +118,6 @@ final class RegionPickerView: NSView {
     /// Selection when beautify is off. Annotations then draw on top of it,
     /// which is the composition order without the beautify stages.
     private var effectedPreview: CGImage?
-    /// The in-flight subject isolation, so cancelling the capture cancels it.
-    private var isolationTask: Task<Void, Never>?
-    private var isolationRunning = false
 
     /// What the loupe tool would place if the user clicked right now. Rendered
     /// through the same case as the committed annotation, so nothing changes
@@ -220,10 +210,8 @@ final class RegionPickerView: NSView {
         selectionPrefs: SelectionPrefs = SelectionPrefs(),
         onSelectionPrefsChanged: ((SelectionPrefs) -> Void)? = nil,
         beautifyDefaults: BeautifyDefaults = BeautifyDefaults(),
-        onBeautifyDefaultsChanged: ((BeautifyDefaults) -> Void)? = nil,
-        isolateSubject: @escaping SubjectIsolator = SubjectIsolation.live
+        onBeautifyDefaultsChanged: ((BeautifyDefaults) -> Void)? = nil
     ) {
-        self.isolateSubject = isolateSubject
         self.onBeautifyDefaultsChanged = onBeautifyDefaultsChanged
         // The look is remembered; the toggle is not. Every capture starts plain
         // and every capture starts with the effect sliders neutral.
@@ -882,14 +870,6 @@ final class RegionPickerView: NSView {
 
     // MARK: Post-processing
 
-    /// Whether the confirmed image can carry transparency: an isolated subject
-    /// with no backdrop behind it. State, not a pixel scan.
-    var mayContainTransparency: Bool { composition.mayContainTransparency }
-
-    /// The mask belongs to one crop, so the crop stops moving while it is
-    /// applied. Undoing the removal unlocks it again.
-    var isSelectionLocked: Bool { composition.backgroundRemoved }
-
     /// True while the beautify preview owns the overlay. The capture is
     /// read-only then: annotating into a scaled, offset composition would mean
     /// inverse-transforming every event for a flow — draw, then dress up, then
@@ -914,9 +894,6 @@ final class RegionPickerView: NSView {
             }
         case .effects:
             effectsPanelOpen.toggle()
-        case .removeBackground:
-            removeBackground()
-            return
         }
         refreshPostProcessing()
     }
@@ -927,9 +904,6 @@ final class RegionPickerView: NSView {
         invalidateComposition()
         toolbar?.setPostProcessing(.beautify, active: composition.beautify.enabled)
         toolbar?.setPostProcessing(.effects, active: effectsPanelOpen)
-        toolbar?.setPostProcessing(
-            .removeBackground, active: isolationRunning || composition.backgroundRemoved
-        )
         toolbar?.setToolsDisabled(
             isBeautifying ? "Turn Beautify off to keep editing" : nil
         )
@@ -1026,48 +1000,6 @@ final class RegionPickerView: NSView {
         }
     }
 
-    /// One click, one undo entry, one Vision call. The mask is computed for one
-    /// specific crop, which is why the Selection locks while it is applied:
-    /// letting the crop change afterwards would either re-run Vision on every
-    /// drag or leave a stale mask revealing background as the Selection grows.
-    private func removeBackground() {
-        guard !isolationRunning, !composition.backgroundRemoved,
-              let rect = postProcessingRect,
-              let source = captureImage(
-                rect: rect, previewBound: SubjectIsolation.workingSize, includeAnnotations: false
-              )
-        else { return }
-        isolationRunning = true
-        refreshPostProcessing()
-        let isolate = isolateSubject
-        isolationTask = Task { [weak self] in
-            let mask = await isolate(source)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { self?.finishBackgroundRemoval(mask: mask) }
-        }
-    }
-
-    private func finishBackgroundRemoval(mask: CGImage?) {
-        isolationRunning = false
-        isolationTask = nil
-        guard let mask else {
-            // A failed attempt costs nothing: no state change, just a notice.
-            showNotice("No subject found in this capture")
-            refreshPostProcessing()
-            return
-        }
-        subjectMask = mask
-        document.setBackgroundRemoved(true)
-        composition.backgroundRemoved = true
-        refreshPostProcessing()
-    }
-
-    private func cancelBackgroundRemoval() {
-        isolationTask?.cancel()
-        isolationTask = nil
-        isolationRunning = false
-    }
-
     /// A short, non-blocking notice in the overlay chrome, on the same chip the
     /// selecting-state hint uses.
     private func showNotice(_ text: String) {
@@ -1090,7 +1022,7 @@ final class RegionPickerView: NSView {
     /// True when the capture pixels themselves differ from the frozen screen,
     /// so the preview has to show them rather than the screen underneath.
     private var isTransformingCapture: Bool {
-        !composition.effects.isNeutral || composition.backgroundRemoved
+        !composition.effects.isNeutral
     }
 
     private func effectedCapturePreview() -> CGImage? {
@@ -1751,7 +1683,7 @@ final class RegionPickerView: NSView {
         // With the select tool, an existing Selection resizes via its handles and
         // moves via a band along its edges. Its interior over empty canvas now
         // belongs to the annotation marquee.
-        if currentTool == .select, let existing = selection, !isSelectionLocked {
+        if currentTool == .select, let existing = selection {
             if let handle = AnnotationGeometry.rectHandle(at: point, in: existing, handleSize: handleSize) {
                 beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
                 return
@@ -2340,7 +2272,6 @@ final class RegionPickerView: NSView {
                 needsDisplay = true
                 return
             }
-            cancelBackgroundRemoval()
             onCancel?()
             return
         }
@@ -2452,10 +2383,6 @@ final class RegionPickerView: NSView {
     /// still exists, and re-read the style strip from the document so it never
     /// shows values for something that is not drawn.
     private func reconcileAfterHistory() {
-        if composition.backgroundRemoved != document.backgroundRemoved {
-            composition.backgroundRemoved = document.backgroundRemoved
-            refreshPostProcessing()
-        }
         let survivors = selectedIDs.filter { document.contains($0) }
         if survivors.count != selectedIDs.count {
             if survivors.isEmpty {
@@ -2636,8 +2563,8 @@ final class RegionPickerView: NSView {
     }
 
     /// The capture as pixels, before any beautify staging: the crop of the
-    /// frozen image with background removal and image effects applied, then the
-    /// annotations drawn over it. That order is the spec's, and it is why
+    /// frozen image with image effects applied, then the annotations drawn
+    /// over it. That order is the spec's, and it is why
     /// effects never touch a red arrow and why annotations are later clipped by
     /// the corner radius.
     ///
@@ -2663,9 +2590,6 @@ final class RegionPickerView: NSView {
             if longest > bound, let shrunk = resized(source, by: bound / longest) {
                 source = shrunk
             }
-        }
-        if composition.backgroundRemoved, let mask = subjectMask {
-            source = SubjectIsolation.applying(mask: mask, to: source) ?? source
         }
         source = ImageEffects.apply(composition.effects, to: source)
 
@@ -2741,9 +2665,9 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Effects and background removal change the capture pixels themselves,
-        // so the preview draws them over the frozen screen; the annotations then
-        // draw on top, which is the composition order without beautify's stages.
+        // Effects change the capture pixels themselves, so the preview draws
+        // them over the frozen screen; the annotations then draw on top, which
+        // is the composition order without beautify's stages.
         if isTransformingCapture, let rect = postProcessingRect,
            let effected = effectedCapturePreview() {
             NSImage(cgImage: effected, size: rect.size).draw(in: rect)
@@ -2834,8 +2758,7 @@ final class RegionPickerView: NSView {
             }
 
             // Committed selection grows resize handles with the select tool.
-            if currentTool == .select, selection != nil, selectionGesture == nil,
-               !isSelectionLocked {
+            if currentTool == .select, selection != nil, selectionGesture == nil {
                 for (_, point) in AnnotationGeometry.rectHandlePositions(active) {
                     let handleRect = CGRect(
                         x: point.x - handleSize / 2,
@@ -3177,13 +3100,11 @@ final class RegionToolbarView: NSView {
 enum PostProcessingControl: String, CaseIterable {
     case beautify
     case effects
-    case removeBackground
 
     var systemImage: String {
         switch self {
         case .beautify: return "wand.and.stars"
         case .effects: return "slider.horizontal.3"
-        case .removeBackground: return "person.and.background.dotted"
         }
     }
 
@@ -3191,7 +3112,6 @@ enum PostProcessingControl: String, CaseIterable {
         switch self {
         case .beautify: return "Beautify"
         case .effects: return "Image effects"
-        case .removeBackground: return "Remove background"
         }
     }
 
@@ -3200,7 +3120,6 @@ enum PostProcessingControl: String, CaseIterable {
         switch self {
         case .beautify: return "b"
         case .effects: return "e"
-        case .removeBackground: return "r"
         }
     }
 

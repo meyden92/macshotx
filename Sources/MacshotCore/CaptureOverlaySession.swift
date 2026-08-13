@@ -22,7 +22,6 @@ final class CaptureOverlaySession {
         let image: CGImage
         let appName: String?
         let windowTitle: String?
-        let mayContainTransparency: Bool
     }
 
     enum Outcome {
@@ -442,8 +441,7 @@ final class CaptureOverlaySession {
         finish(.committed(Commit(
             image: image,
             appName: frontAppName,
-            windowTitle: frontWindowTitle,
-            mayContainTransparency: overlay.view.mayContainTransparency
+            windowTitle: frontWindowTitle
         )))
     }
 

@@ -35,16 +35,12 @@ struct AnnotationDocument {
         case insert(index: Int, placed: Placed)
         case remove(index: Int, placed: Placed)
         case change(id: ID, before: Annotation, after: Annotation)
-        /// A whole-image transform: today, whether a background removal is
-        /// applied. One click, one entry, one undo.
-        case imageTransform(before: Bool, after: Bool)
 
         func apply(to document: inout AnnotationDocument) {
             switch self {
             case let .insert(index, placed): document.placed.insert(placed, at: index)
             case let .remove(index, _): document.placed.remove(at: index)
             case let .change(id, _, after): Self.set(id, to: after, in: &document.placed)
-            case let .imageTransform(_, after): document.backgroundRemoved = after
             }
         }
 
@@ -53,7 +49,6 @@ struct AnnotationDocument {
             case let .insert(index, _): document.placed.remove(at: index)
             case let .remove(index, placed): document.placed.insert(placed, at: index)
             case let .change(id, before, _): Self.set(id, to: before, in: &document.placed)
-            case let .imageTransform(before, _): document.backgroundRemoved = before
             }
         }
 
@@ -64,11 +59,6 @@ struct AnnotationDocument {
     }
 
     private(set) var placed: [Placed] = []
-    /// Whether a background removal is applied to the capture. It lives here
-    /// rather than beside the other composition state because it is the one
-    /// post-processing act that is undoable, and a parallel undo stack for it
-    /// would be exactly the mistake ADR 0006 exists to prevent.
-    private(set) var backgroundRemoved = false
     private var undoStack: [Step] = []
     private var redoStack: [Step] = []
     private var nextRawID = 0
@@ -125,14 +115,6 @@ struct AnnotationDocument {
         let before = placed[index].annotation
         placed[index].annotation = annotation
         record(.change(id: id, before: before, after: annotation))
-    }
-
-    /// Records a background removal as one image-transform step.
-    mutating func setBackgroundRemoved(_ value: Bool) {
-        guard backgroundRemoved != value else { return }
-        let before = backgroundRemoved
-        backgroundRemoved = value
-        record(.imageTransform(before: before, after: value))
     }
 
     // MARK: Drag support

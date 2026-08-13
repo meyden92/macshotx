@@ -302,19 +302,6 @@ enum ImageFormat: String, Codable, Sendable, CaseIterable {
         }
     }
 
-    /// JPEG cannot store transparency. HEIC can — verified against the system
-    /// encoder by round-tripping a transparent image, not assumed.
-    var supportsAlpha: Bool { self != .jpeg }
-
-    /// The format a run should actually use. Resolved in one place so the
-    /// encode call and the filename extension can never disagree and write PNG
-    /// bytes into a `.jpg`. Flattening the transparency onto a colour was
-    /// rejected: it destroys the thing the user clicked a button to create.
-    func effective(mayContainTransparency: Bool) -> ImageFormat {
-        guard mayContainTransparency, !supportsAlpha else { return self }
-        Log.info("\(rawValue) cannot store transparency; writing png instead")
-        return .png
-    }
 }
 
 struct CaptureSettings: Equatable, Codable, Sendable {
