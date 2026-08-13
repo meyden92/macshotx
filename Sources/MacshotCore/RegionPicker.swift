@@ -1648,7 +1648,8 @@ final class RegionPickerView: NSView {
         // and stays armed: the key is still held, so the user can sweep on and
         // take another span.
         if let preview = autoMeasure?.preview {
-            document.insert(preview)
+            selectedIDs = [document.insert(preview)]
+            refreshToolOptions()
             needsDisplay = true
             return
         }
@@ -1690,10 +1691,15 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Grabbing an existing element takes priority over the active tool, so a
-        // placed annotation is always selectable/movable/resizable — no need to
-        // switch back to the select tool first.
-        if let id = selectedID, let selected = document.annotation(for: id) {
+        // Grabbing a placed element belongs to the select tool. While a drawing
+        // tool is active the drag has to draw instead, or there is no way to
+        // put a new element on top of an existing one — a smaller rectangle
+        // inside a redact box, a label over an arrow. Command grabs without
+        // switching tools, and a bare click still selects (see mouseUp).
+        let manipulates = currentTool == .select
+            || event.modifierFlags.contains(.command)
+
+        if manipulates, let id = selectedID, let selected = document.annotation(for: id) {
             // The rotation handle floats clear of the box, so it is checked
             // first only to keep the two grabs from ever competing.
             if AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize) {
@@ -1714,14 +1720,14 @@ final class RegionPickerView: NSView {
 
         // A set of several drags as one unit from anywhere inside its combined
         // outline; Shift is reserved for changing who is in the set.
-        if !shift, selectedIDs.count > 1,
+        if manipulates, !shift, selectedIDs.count > 1,
            let bounds = selectedSetBounds, bounds.contains(point) {
             movingAnnotation = true
             beginManipulation(at: point, of: selectedIDs)
             return
         }
 
-        if let id = hitAnnotationID(at: point) {
+        if manipulates, let id = hitAnnotationID(at: point) {
             if shift {
                 // Shift-click fixes up a marquee that caught one item too many.
                 if let existing = selectedIDs.firstIndex(of: id) {
@@ -1877,17 +1883,28 @@ final class RegionPickerView: NSView {
                 calloutAnchor: anchor
             )
         } else if let draft = draftAnnotation, isMeaningful(draft) {
-            document.insert(settled(draft))
+            // What was just drawn stays selected, so a tool option changed
+            // straight afterwards lands on it instead of only on the next one.
+            selectedIDs = [document.insert(settled(draft))]
             draftAnnotation = nil
             dragStart = nil
+            refreshToolOptions()
         } else {
             let discardedToolClick = draftAnnotation != nil
             draftAnnotation = nil
             dragStart = nil
-            // A tool click that drew nothing still snap-captures the window
-            // under it; with snap off it stays a no-op.
             if discardedToolClick {
-                handleBareClick(with: event, allowsDisplayCapture: false)
+                // Only drags belong to the drawing tool, so a click that drew
+                // nothing can still pick up the element underneath — that is
+                // what keeps elements reachable without a tool switch.
+                if let id = hitAnnotationID(at: convert(event.locationInWindow, from: nil)) {
+                    selectedIDs = [id]
+                    refreshToolOptions()
+                } else {
+                    // A tool click on empty canvas still snap-captures the
+                    // window under it; with snap off it stays a no-op.
+                    handleBareClick(with: event, allowsDisplayCapture: false)
+                }
             }
         }
         needsDisplay = true
@@ -1945,6 +1962,15 @@ final class RegionPickerView: NSView {
         }
         updateSnapHighlight(atWindowPoint: event.locationInWindow)
         if let toolbar, toolbar.frame.contains(point) { return }
+        updateCursor(at: point, modifiers: event.modifierFlags)
+    }
+
+    /// The grab cursor has to agree with what mouseDown will actually do: under
+    /// a drawing tool the drag draws, so hovering an element must still read as
+    /// "draw here" rather than promising a move. Command flips that back, which
+    /// is why flagsChanged re-runs this without the pointer having moved.
+    private func updateCursor(at point: NSPoint, modifiers: NSEvent.ModifierFlags) {
+        let manipulates = currentTool == .select || modifiers.contains(.command)
         let overElement: Bool
         if let id = selectedID, let selected = document.annotation(for: id),
            AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
@@ -1955,7 +1981,7 @@ final class RegionPickerView: NSView {
         } else {
             overElement = hitAnnotationID(at: point) != nil
         }
-        (overElement ? NSCursor.openHand : NSCursor.crosshair).set()
+        (manipulates && overElement ? NSCursor.openHand : NSCursor.crosshair).set()
     }
 
     /// With snap armed and no selection in progress, the topmost window under
@@ -2269,6 +2295,9 @@ final class RegionPickerView: NSView {
             selectionGesture = gesture
             layoutChrome()
             needsDisplay = true
+        } else if !isBeautifying, let point = lastPointerPoint,
+                  toolbar.map({ !$0.frame.contains(point) }) ?? true {
+            updateCursor(at: point, modifiers: event.modifierFlags)
         }
         super.flagsChanged(with: event)
     }
@@ -2551,9 +2580,13 @@ final class RegionPickerView: NSView {
             // Re-edit keeps the annotation's own style and geometry; only the
             // words changed.
             document.replace(editedID, with: reContented(existing, content: content))
+            selectedIDs = [editedID]
         } else {
-            document.insert(updated)
+            selectedIDs = [document.insert(updated)]
         }
+        // Just-typed words are still the active element, so the size and colour
+        // controls act on them rather than on the next label.
+        refreshToolOptions()
         needsDisplay = true
     }
 

@@ -283,6 +283,9 @@ func aSpotlightIsSelectableMovableAndResizable() throws {
     view.keyDown(with: key("d", 2, window))
     drag(in: view, window: window, from: CGPoint(x: 60, y: 60), to: CGPoint(x: 100, y: 100))
 
+    // Moving and resizing a placed element is the select tool's job; a drag
+    // with the spotlight tool still active would draw another one.
+    view.keyDown(with: key("s", 1, window))
     // Select it, then drag its body somewhere else.
     drag(in: view, window: window, from: CGPoint(x: 80, y: 80), to: CGPoint(x: 80, y: 80))
     drag(in: view, window: window, from: CGPoint(x: 80, y: 80), to: CGPoint(x: 120, y: 120))
