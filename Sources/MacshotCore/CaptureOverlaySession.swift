@@ -162,8 +162,6 @@ final class CaptureOverlaySession {
                     id: window.windowID,
                     frame: window.frame,
                     bundleIdentifier: window.owningApplication?.bundleIdentifier,
-                    applicationName: window.owningApplication?.applicationName,
-                    title: window.title,
                     layer: window.windowLayer,
                     isOnScreen: window.isOnScreen
                 )

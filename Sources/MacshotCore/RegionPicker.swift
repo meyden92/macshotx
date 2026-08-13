@@ -348,7 +348,7 @@ final class RegionPickerView: NSView {
     /// snap armed it seeds the Selection from the window under the click; with
     /// snap off, an idle overlay seeds it to the whole display (select tool
     /// only — a misclick with a drawing tool must not seed anything).
-    private func handleBareClick(with event: NSEvent, allowsDisplayCapture: Bool) {
+    private func handleBareClick(with event: NSEvent, allowsDisplaySeeding: Bool) {
         guard requiresSelection else { return }
         if snapArmed {
             // Re-resolve at the click itself rather than trusting the hover
@@ -361,7 +361,7 @@ final class RegionPickerView: NSView {
             }
             return
         }
-        if allowsDisplayCapture, isIdle { onIdleClick?() }
+        if allowsDisplaySeeding, isIdle { onIdleClick?() }
     }
 
     // MARK: Idle helper card
@@ -1831,7 +1831,7 @@ final class RegionPickerView: NSView {
             onSelectionActivity?(selection != nil)
             layoutChrome()
             needsDisplay = true
-            if wasBareClick { handleBareClick(with: event, allowsDisplayCapture: true) }
+            if wasBareClick { handleBareClick(with: event, allowsDisplaySeeding: true) }
             return
         }
         if marquee != nil {
@@ -1876,7 +1876,7 @@ final class RegionPickerView: NSView {
             // A tool click that drew nothing still snap-captures the window
             // under it; with snap off it stays a no-op.
             if discardedToolClick {
-                handleBareClick(with: event, allowsDisplayCapture: false)
+                handleBareClick(with: event, allowsDisplaySeeding: false)
             }
         }
         needsDisplay = true
@@ -3839,17 +3839,6 @@ final class OptionSlider: NSView {
         set {
             slider.doubleValue = Double(newValue)
             valueLabel.stringValue = format(newValue)
-        }
-    }
-
-    /// A control that does nothing needs to say so rather than just not
-    /// responding — see the window companion path, where the window already
-    /// carries its own corners.
-    var isEnabled: Bool {
-        get { slider.isEnabled }
-        set {
-            slider.isEnabled = newValue
-            alphaValue = newValue ? 1 : 0.4
         }
     }
 

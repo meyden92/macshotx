@@ -219,8 +219,7 @@ func snapArmedClickAsksTheSessionToSeedTheHighlightedWindow() {
     let (view, window) = makeOverlayView(image: makeImage())
     let target = WindowCandidate(
         id: 42, frame: CGRect(x: 0, y: 0, width: 200, height: 200),
-        bundleIdentifier: "com.example.app", applicationName: "App",
-        title: "Doc", layer: 0, isOnScreen: true
+        bundleIdentifier: "com.example.app", layer: 0, isOnScreen: true
     )
     var clicked: WindowCandidate?
     var idleClicks = 0

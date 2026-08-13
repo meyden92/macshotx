@@ -15,7 +15,7 @@ enum FilenameTemplate {
         var randomProvider: (Int) -> String = { FilenameTemplate.randomAlphanumeric($0) }
     }
 
-    /// Token names ordered longest-first so `%mo` never half-matches `%ms`.
+    /// Token names ordered longest-first so `%host` never half-matches `%h`.
     private static let tokenNames = [
         "counter", "window", "host", "user", "uuid",
         "app", "rand", "mo", "mi", "ms", "y", "d", "h", "s"

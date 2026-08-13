@@ -38,9 +38,9 @@ func dateTokensExpand() {
 
 @Test
 func longerTokensWinOverTheirPrefixes() {
-    // %ms must not be read as %m + "s", and %mo must not eat %ms.
-    let result = FilenameTemplate.expand("%mo-%mi-%ms", context: makeContext())
-    #expect(result == "05-31-007")
+    // %host must not be read as %h + "ost"; the whole ordering exists for this.
+    #expect(FilenameTemplate.expand("%host-%h", context: makeContext()) == "mymac-14")
+    #expect(FilenameTemplate.expand("%mo-%mi-%ms", context: makeContext()) == "05-31-007")
 }
 
 @Test

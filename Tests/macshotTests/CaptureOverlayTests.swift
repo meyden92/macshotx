@@ -202,8 +202,6 @@ private func candidate(
         id: id,
         frame: CGRect(x: x, y: y, width: w, height: h),
         bundleIdentifier: bundle,
-        applicationName: "App",
-        title: "Window \(id)",
         layer: layer,
         isOnScreen: onScreen
     )

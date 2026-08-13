@@ -116,7 +116,7 @@ enum HelperCard {
             )
         }
         return Content(
-            instruction: "Drag to select · F for fullscreen · Tab for window selection",
+            instruction: "Drag to select · F for fullscreen · Tab for window snap",
             status: "Window snap: OFF (Tab)"
         )
     }

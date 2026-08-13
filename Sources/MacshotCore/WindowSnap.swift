@@ -8,8 +8,6 @@ struct WindowCandidate: Equatable, Sendable {
     var id: UInt32
     var frame: CGRect
     var bundleIdentifier: String?
-    var applicationName: String?
-    var title: String?
     /// CGWindow layer; 0 is the normal window layer.
     var layer: Int
     var isOnScreen: Bool
