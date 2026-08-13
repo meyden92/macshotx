@@ -3138,6 +3138,9 @@ final class RegionToolbarView: NSView {
         optionsRow.onFontSizeSelected = { [weak self] in self?.onFontSizeSelected?($0) }
         optionsRow.onGestureBegan = { [weak self] in self?.onStyleGestureBegan?() }
         optionsRow.onGestureEnded = { [weak self] in self?.onStyleGestureEnded?() }
+        optionsRow.onHover = { [weak self] text, frame in
+            self?.onButtonHover?(text, frame)
+        }
         optionsRow.frame.origin = NSPoint(x: 0, y: 8)
         addSubview(optionsRow)
     }
@@ -3543,8 +3546,11 @@ final class ToolOptionsRowView: NSView {
     /// lands as one undo entry and persists once instead of per tick.
     var onGestureBegan: (() -> Void)?
     var onGestureEnded: (() -> Void)?
+    /// The hovered control's tooltip and its frame, in the toolbar's
+    /// coordinates. The overlay draws its own tooltips — see `onHover`.
+    var onHover: ((String?, NSRect) -> Void)?
 
-    let colorWell = ColorWellButton()
+    let colorWell = ColorWellButton(tooltip: "Stroke and text colour")
     let dashControl = SegmentedOptionControl(
         titles: DashStyle.allCases.map(\.label),
         tooltips: DashStyle.allCases.map(\.tooltip)
@@ -3558,7 +3564,7 @@ final class ToolOptionsRowView: NSView {
         titles: FillMode.allCases.map(\.label),
         tooltips: FillMode.allCases.map(\.tooltip)
     )
-    let fillColorWell = ColorWellButton()
+    let fillColorWell = ColorWellButton(tooltip: "Fill colour")
     let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let traitToggles: [TextTrait: ToggleOptionButton] = [
         .bold: ToggleOptionButton(title: "B", tooltip: "Bold"),
@@ -3571,9 +3577,9 @@ final class ToolOptionsRowView: NSView {
         tooltips: TextAlignment.allCases.map(\.tooltip)
     )
     let backgroundToggle = ToggleOptionButton(title: "▤", tooltip: "Background behind the text")
-    let backgroundWell = ColorWellButton()
+    let backgroundWell = ColorWellButton(tooltip: "Colour of the background behind the text")
     let outlineToggle = ToggleOptionButton(title: "◌", tooltip: "Outline around the glyphs")
-    let outlineWell = ColorWellButton()
+    let outlineWell = ColorWellButton(tooltip: "Colour of the outline around the glyphs")
     let ringToggle = ToggleOptionButton(title: "◯", tooltip: "Rings and connector")
     let spotlightShapeControl = SegmentedOptionControl(
         titles: SpotlightShape.allCases.map(\.label),
@@ -3597,23 +3603,28 @@ final class ToolOptionsRowView: NSView {
         self.separator = sep
         self.widthSlider = OptionSlider(
             range: Self.lineWidthRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Stroke width, in points"
         )
         self.fontSlider = OptionSlider(
             range: Self.fontSizeRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Font size, in points"
         )
         self.radiusSlider = OptionSlider(
             range: Self.cornerRadiusRange,
-            format: { String(format: "%.0f", $0) }
+            format: { String(format: "%.0f", $0) },
+            tooltip: "Corner radius — 0 leaves the corners square"
         )
         self.magnificationSlider = OptionSlider(
             range: LoupeGeometry.magnificationRange,
-            format: { String(format: "%.1f×", $0) }
+            format: { String(format: "%.1f×", $0) },
+            tooltip: "How much the loupe magnifies what it points at"
         )
         self.dimSlider = OptionSlider(
             range: SpotlightGeometry.strengthRange,
-            format: { String(format: "%.0f%%", $0 * 100) }
+            format: { String(format: "%.0f%%", $0 * 100) },
+            tooltip: "How far the area outside the spotlight is dimmed"
         )
         super.init(frame: .zero)
 
@@ -3641,6 +3652,7 @@ final class ToolOptionsRowView: NSView {
         fontPopup.action = #selector(fontFamilyChanged)
         fontPopup.controlSize = .small
         fontPopup.font = NSFont.systemFont(ofSize: 11)
+        fontPopup.toolTip = "Font family"
         fontPopup.frame = NSRect(x: 0, y: 2, width: 116, height: 20)
         addSubview(fontPopup)
 
@@ -3705,6 +3717,48 @@ final class ToolOptionsRowView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    // MARK: Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self, userInfo: nil
+        ))
+    }
+
+    /// One tracking area for the whole row rather than one per control: every
+    /// control already carries its `toolTip`, and the row is rebuilt for each
+    /// tool, so hit-testing on the way past keeps the wiring in one place.
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hovered = tooltipOwner(at: point), let text = hovered.toolTip else {
+            onHover?(nil, .zero)
+            return
+        }
+        onHover?(text, hovered.convert(hovered.bounds, to: superview))
+    }
+
+    override func mouseExited(with event: NSEvent) { onHover?(nil, .zero) }
+
+    /// The deepest visible view under `point` that names itself — a slider sets
+    /// its tooltip on its track and readout too, and a segmented control sets
+    /// one per segment, so the answer is usually a leaf.
+    private func tooltipOwner(at point: NSPoint) -> NSView? {
+        func search(_ view: NSView, _ pointInView: NSPoint) -> NSView? {
+            for sub in view.subviews.reversed() where !sub.isHidden {
+                guard sub.frame.contains(pointInView) else { continue }
+                if let found = search(sub, sub.convert(pointInView, from: view)) {
+                    return found
+                }
+            }
+            return view.toolTip == nil ? nil : view
+        }
+        return search(self, point)
+    }
 
     @objc private func fontFamilyChanged() {
         onFontFamilySelected?(fontPopup.titleOfSelectedItem ?? TextLayout.systemFamilyName)
@@ -3915,7 +3969,14 @@ final class OptionSlider: NSView {
     private let valueLabel: NSTextField
     private let format: (CGFloat) -> String
 
-    init(range: ClosedRange<CGFloat>, format: @escaping (CGFloat) -> String) {
+    /// The tool-options row has no room for a caption beside each slider, so
+    /// what the value means lives in the tooltip. Sliders whose format string
+    /// already names them — the beautify and effects panels — pass none.
+    init(
+        range: ClosedRange<CGFloat>,
+        format: @escaping (CGFloat) -> String,
+        tooltip: String? = nil
+    ) {
         self.format = format
         slider = TrackingSlider()
         slider.minValue = Double(range.lowerBound)
@@ -3932,6 +3993,11 @@ final class OptionSlider: NSView {
         valueLabel.frame = NSRect(x: 92, y: 4, width: 22, height: 16)
         addSubview(slider)
         addSubview(valueLabel)
+        // Tooltips are per-view, so the track and the readout each carry it —
+        // otherwise hovering the part the user actually aims at says nothing.
+        if let tooltip {
+            for view in [self, slider, valueLabel] as [NSView] { view.toolTip = tooltip }
+        }
 
         slider.target = self
         slider.action = #selector(sliderMoved)
