@@ -246,6 +246,13 @@ final class RegionPickerView: NSView {
         super.init(frame: frame)
         loadStyles(styles)
         wantsLayer = true
+        // The chrome floats over whatever is on screen, so following the system
+        // appearance is the wrong reference: in Light Mode over a dark app the
+        // glass samples near-black and .labelColor draws near-black on top of
+        // it. Pin the chrome to a dark HUD instead — light content on a dark
+        // surface reads over a dark backdrop and a light one alike. Every piece
+        // of chrome is a subview of this view, so one appearance covers them.
+        appearance = NSAppearance(named: .darkAqua)
         setupToolbar()
     }
 
