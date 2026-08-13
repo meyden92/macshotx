@@ -246,6 +246,9 @@ func draggingAnEndpointMovesThatEndOfTheLine() throws {
     view.keyDown(with: key("m", 46, window))
     drag(in: view, window: window, from: CGPoint(x: 40, y: 100), to: CGPoint(x: 160, y: 100))
 
+    // Editing a placed measurement is the select tool's job; a drag with the
+    // measure tool still active would draw another one.
+    view.keyDown(with: key("s", 1, window))
     // Select it by its body, then take the far endpoint somewhere else.
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 100, y: 100))
     drag(in: view, window: window, from: CGPoint(x: 160, y: 100), to: CGPoint(x: 160, y: 140))
@@ -265,6 +268,7 @@ func draggingAnEndpointReAppliesTheSnap() throws {
     let (view, window) = makeHostedView()
     view.keyDown(with: key("m", 46, window))
     drag(in: view, window: window, from: CGPoint(x: 40, y: 100), to: CGPoint(x: 160, y: 100))
+    view.keyDown(with: key("s", 1, window))
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 100, y: 100))
     drag(in: view, window: window, from: CGPoint(x: 160, y: 100), to: CGPoint(x: 180, y: 105))
 
@@ -279,6 +283,7 @@ func draggingTheBodyMovesTheWholeLineWithoutChangingItsLength() throws {
     let (view, window) = makeHostedView()
     view.keyDown(with: key("m", 46, window))
     drag(in: view, window: window, from: CGPoint(x: 40, y: 100), to: CGPoint(x: 160, y: 100))
+    view.keyDown(with: key("s", 1, window))
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 100, y: 100))
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 100, y: 60))
 

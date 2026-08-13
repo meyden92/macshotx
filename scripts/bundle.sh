@@ -47,6 +47,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
+    <key>LSUIElement</key>
+    <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSPrincipalClass</key>

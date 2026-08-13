@@ -23,13 +23,27 @@ func radiusTiersAreOrderedLargestFirst() {
 @MainActor
 @Test
 func theAccentRolesResolveToTheUsersAccentColourNotAFixedBlue() {
-    #expect(ChromeTintRole.neutral.tintColor == nil, "A strip or a card is untinted glass")
+    #expect(ChromeTintRole.neutral.tintColor == nil, "A resting control has no fill")
     #expect(ChromeTintRole.active.tintColor == NSColor.controlAccentColor)
     #expect(ChromeTintRole.primary.tintColor == NSColor.controlAccentColor)
     #expect(ChromeTintRole.destructive.tintColor == NSColor.systemRed)
     // Dynamic colours, never snapshotted: the role hands back the system colour
     // itself, so it re-resolves with appearance and accent changes.
     #expect(ChromeTintRole.neutral.contentColor == NSColor.labelColor)
+    #expect(ChromeTintRole.active.surfaceTint == NSColor.controlAccentColor)
+    #expect(ChromeTintRole.destructive.surfaceTint == NSColor.systemRed)
+}
+
+/// The glass samples the backdrop, not the pinned appearance, so a neutral
+/// surface has to be dark on its own — otherwise a light window behind the
+/// overlay renders light glass under the chrome's light text.
+@MainActor
+@Test
+func aNeutralGlassSurfaceIsDarkOnItsOwnRatherThanFollowingTheBackdrop() {
+    let tint = ChromeTintRole.neutral.surfaceTint
+    let srgb = try! #require(tint.usingColorSpace(.sRGB))
+    #expect(srgb.brightnessComponent < 0.25, "Neutral glass must read as a dark HUD")
+    #expect(srgb.alphaComponent > 0, "A fully transparent tint leaves the glass adaptive")
 }
 
 @Test
@@ -121,4 +135,46 @@ func aTypicalCaptureKeepsTheGlassSurfaceCountInSingleDigits() {
     let surfaces = glassSurfaces(in: view)
     #expect(surfaces > 0, "Chrome really is on glass")
     #expect(surfaces < 10, "Glass surfaces should stay in single digits, got \(surfaces)")
+}
+
+// MARK: - Contrast against the backdrop
+
+@MainActor
+private func makeOverlay() -> RegionPickerView {
+    let frame = NSRect(x: 0, y: 0, width: 200, height: 200)
+    let ctx = CGContext(
+        data: nil, width: 200, height: 200,
+        bitsPerComponent: 8, bytesPerRow: 4 * 200,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    return RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1)
+}
+
+@MainActor
+@Test
+func theOverlayPinsItsChromeToADarkAppearanceRatherThanTheSystemsOwn() {
+    let view = makeOverlay()
+    // The chrome sits over arbitrary screen content, so a Light Mode system
+    // must not make it draw dark text on glass that sampled a dark app.
+    #expect(view.effectiveAppearance.name == .darkAqua)
+    // Chrome added later inherits it, so every strip, card and readout agrees.
+    for subview in view.subviews {
+        #expect(subview.effectiveAppearance.name == .darkAqua)
+    }
+}
+
+@MainActor
+@Test
+func chromeContentResolvesLightSoItReadsOnTheDarkGlass() {
+    var neutral = CGFloat(0)
+    var secondary = CGFloat(0)
+    makeOverlay().effectiveAppearance.performAsCurrentDrawingAppearance {
+        neutral = ChromeTintRole.neutral.contentColor
+            .usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+        secondary = NSColor.secondaryLabelColor
+            .usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+    }
+    #expect(neutral > 0.5, "Label text on chrome has to be light, got \(neutral)")
+    #expect(secondary > 0.5, "and so does the secondary text, got \(secondary)")
 }

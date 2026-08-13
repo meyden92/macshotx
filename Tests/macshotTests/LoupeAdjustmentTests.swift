@@ -179,6 +179,9 @@ private func placedLoupe() -> (RegionPickerView, NSWindow) {
     let (view, window) = makeHostedView()
     view.keyDown(with: key("g", 5, window))
     drag(in: view, window: window, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 220, y: 220))
+    // Adjusting a placed element is the select tool's job: with the loupe tool
+    // still active, dragging its circles would draw another loupe.
+    view.keyDown(with: key("s", 1, window))
     // Click the lens to select the loupe (and, in passing, grab nothing).
     drag(in: view, window: window, from: CGPoint(x: 220, y: 220), to: CGPoint(x: 220, y: 220))
     return (view, window)
