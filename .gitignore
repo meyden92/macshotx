@@ -25,3 +25,9 @@ dist/
 
 # Personal (uncommitted) skill rules
 .claude/skill-context/**/*.local.md
+
+# Time tracking stays on the machine that recorded it — the plugin books to its
+# own data dir (local mode). The marker that used to force a committed ledger
+# is deliberately absent; re-adding it would put working hours back in the repo.
+.claude/timetracking/
+.timetracking.json
