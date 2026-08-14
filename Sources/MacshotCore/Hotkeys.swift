@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 enum HotkeyAction: String, CaseIterable, Sendable {
     case capture
@@ -68,18 +69,60 @@ extension HotkeyBinding {
         return parts + Self.keyName(for: keyCode)
     }
 
-    private static let specialKeys: [UInt32: String] = [
-        36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 53: "⎋", 76: "⌤",
-        96: "F5", 97: "F6", 98: "F7", 99: "F3", 100: "F8", 101: "F9",
-        103: "F11", 105: "F13", 107: "F14", 109: "F10", 111: "F12",
-        113: "F15", 114: "Help", 115: "↖", 116: "⇞", 117: "⌦",
-        118: "F4", 119: "↘", 120: "F2", 121: "⇟", 122: "F1",
-        123: "←", 124: "→", 125: "↓", 126: "↑"
+    /// The binding as a menu key equivalent, so a tray entry can advertise the
+    /// hotkey that actually triggers it. Cosmetic: the global Carbon hotkey does
+    /// the work, this only makes the menu draw the combination on the right.
+    /// nil when the key code has no equivalent AppKit can draw.
+    @MainActor
+    var menuShortcut: KeyboardShortcut? {
+        guard let key = Self.keyEquivalent(for: keyCode) else { return nil }
+        // Fully qualified: Carbon declares an EventModifiers of its own.
+        var modifiers: SwiftUI.EventModifiers = []
+        if carbonModifiers & UInt32(controlKey) != 0 { modifiers.insert(.control) }
+        if carbonModifiers & UInt32(optionKey) != 0 { modifiers.insert(.option) }
+        if carbonModifiers & UInt32(shiftKey) != 0 { modifiers.insert(.shift) }
+        if carbonModifiers & UInt32(cmdKey) != 0 { modifiers.insert(.command) }
+        // .custom: the key was already resolved against the current layout, so
+        // SwiftUI must not remap it a second time.
+        return KeyboardShortcut(key, modifiers: modifiers, localization: .custom)
+    }
+
+    /// Key codes whose glyph is not the character they type: the name shown in
+    /// Settings → Hotkeys and the equivalent a menu draws. One table so the two
+    /// cannot drift apart.
+    private static let specialKeys: [UInt32: (name: String, key: KeyEquivalent)] = [
+        36: ("↩", .return), 48: ("⇥", .tab), 49: ("Space", .space),
+        51: ("⌫", .delete), 53: ("⎋", .escape), 76: ("⌤", KeyEquivalent("\u{3}")),
+        96: ("F5", functionKey(5)), 97: ("F6", functionKey(6)),
+        98: ("F7", functionKey(7)), 99: ("F3", functionKey(3)),
+        100: ("F8", functionKey(8)), 101: ("F9", functionKey(9)),
+        103: ("F11", functionKey(11)), 105: ("F13", functionKey(13)),
+        107: ("F14", functionKey(14)), 109: ("F10", functionKey(10)),
+        111: ("F12", functionKey(12)), 113: ("F15", functionKey(15)),
+        114: ("Help", KeyEquivalent("\u{F746}")), 115: ("↖", .home),
+        116: ("⇞", .pageUp), 117: ("⌦", .deleteForward),
+        118: ("F4", functionKey(4)), 119: ("↘", .end),
+        120: ("F2", functionKey(2)), 121: ("⇟", .pageDown),
+        122: ("F1", functionKey(1)), 123: ("←", .leftArrow),
+        124: ("→", .rightArrow), 125: ("↓", .downArrow), 126: ("↑", .upArrow)
     ]
+
+    /// NSMenuItem draws the F-key scalars (F704…) as "F1", "F2", …
+    private static func functionKey(_ number: Int) -> KeyEquivalent {
+        KeyEquivalent(Character(UnicodeScalar(0xF704 + number - 1)!))
+    }
+
+    @MainActor
+    private static func keyEquivalent(for keyCode: UInt32) -> KeyEquivalent? {
+        if let special = specialKeys[keyCode] { return special.key }
+        let name = keyName(for: keyCode)
+        guard name.count == 1, let character = name.lowercased().first else { return nil }
+        return KeyEquivalent(character)
+    }
 
     @MainActor
     static func keyName(for keyCode: UInt32) -> String {
-        if let special = specialKeys[keyCode] { return special }
+        if let special = specialKeys[keyCode] { return special.name }
         guard
             let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
             let layoutPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
