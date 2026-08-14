@@ -118,10 +118,15 @@ private func makeSceneWithTwoRects() -> (RegionPickerView, NSWindow) {
     return (view, window)
 }
 
-/// Marquee across both rects, from empty canvas inside the Selection.
+/// Marquee across both rects, from empty canvas inside the Selection. Command
+/// is what distinguishes it from the plain drag, which moves the Selection.
 @MainActor
 private func marqueeBothRects(_ view: RegionPickerView, _ window: NSWindow) {
-    drag(in: view, window: window, from: CGPoint(x: 22, y: 22), to: CGPoint(x: 95, y: 95))
+    drag(
+        in: view, window: window,
+        from: CGPoint(x: 22, y: 22), to: CGPoint(x: 95, y: 95),
+        modifiers: [.command]
+    )
 }
 
 /// Confirms the committed Selection and returns the baked crop.
@@ -306,11 +311,11 @@ func theFloatingDeleteAffordanceRemovesTheSetAndOnlyExistsForOne() {
 /// just off its top-right corner.
 private let affordanceCenter = CGPoint(x: 108, y: 12)
 
-// MARK: - The Selection the marquee displaced
+// MARK: - Moving the Selection the marquee shares an interior with
 
 @MainActor
 @Test
-func theSelectionStillMovesByItsBorderBand() {
+func aPlainDragInsideTheSelectionMovesIt() {
     let (view, window) = makeHostedView()
 
     // A black rect at (100,100)–(120,120), then the Selection (10,10)–(150,150).
@@ -319,9 +324,9 @@ func theSelectionStillMovesByItsBorderBand() {
     view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
     drag(in: view, window: window, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 150, y: 150))
 
-    // Grab the band just inside the left edge — clear of the edge-midpoint
-    // resize handle, which still wins — and push the Selection right by 40.
-    drag(in: view, window: window, from: CGPoint(x: 13, y: 40), to: CGPoint(x: 53, y: 40))
+    // Grab the middle — the instinctive gesture, which used to rubber-band and
+    // drop the Selection — and push it right by 40.
+    drag(in: view, window: window, from: CGPoint(x: 80, y: 40), to: CGPoint(x: 120, y: 40))
 
     guard let baked = bake(view, window) else {
         Issue.record("No baked image produced")

@@ -54,7 +54,7 @@ The annotations currently selected for group editing (moving, deleting, duplicat
 _Avoid_: Selection (reserved for the capture rectangle), multi-selection
 
 **Marquee**:
-The transient rectangle a select-tool drag inside the Selection sweeps across the canvas; every annotation it touches joins the selected set.
+The transient rectangle a select-tool Command-drag inside the Selection sweeps across the canvas; every annotation it touches joins the selected set. Command is what distinguishes it from a plain drag there, which moves the Selection.
 _Avoid_: Lasso, rubber band (reserved for drawing the Selection), selection box
 
 **Tool-options row**:
