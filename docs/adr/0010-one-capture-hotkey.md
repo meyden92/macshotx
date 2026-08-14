@@ -15,4 +15,4 @@ macshot had three global capture hotkeys — Region, Window and Fullscreen — f
 - The overlay's entry no longer carries intent: `initialSnapArmed` is gone and the overlay always starts with window snap off.
 - The colour picker and magnifier hotkeys are untouched. They are not captures and have no overlay path.
 - Bindings users had already configured are discarded rather than migrated, and the stored key is renamed with no read of the legacy keys. macshot has no released version, so there is no configuration in the world worth carrying forward; this is not a precedent for post-release schema changes.
-- The menu bar offers a single "Capture" item, with no keyboard equivalent. The old per-mode items carried hardcoded ⌘⇧1/2/3 equivalents that never matched the configured global hotkeys and never reflected rebinds; the Hotkeys settings tab is where combinations belong.
+- The menu bar offers a single "Capture" item. Its key equivalent is drawn from the configured binding, so it follows rebinds; the old per-mode items carried hardcoded ⌘⇧1/2/3 that never matched the global hotkeys at all (#38).

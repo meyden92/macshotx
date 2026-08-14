@@ -1,4 +1,6 @@
 import AppKit
+import Carbon.HIToolbox
+import SwiftUI
 import Testing
 @testable import MacshotCore
 
@@ -47,6 +49,23 @@ func hotkeyDisplayStringShowsModifiersAndKey() {
 
     let escape = HotkeyBinding(keyCode: 53, carbonModifiers: 0)
     #expect(escape.displayString == "⎋")
+}
+
+@MainActor
+@Test
+func hotkeyMenuShortcutMirrorsTheBinding() {
+    let capture = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200) // ⌃⇧4
+    #expect(capture.menuShortcut?.key.character == "4")
+    #expect(capture.menuShortcut?.modifiers == [.control, .shift])
+
+    // F1 draws as "F1" only via the function-key scalar, not the raw key code.
+    let f1 = HotkeyBinding(keyCode: 122, carbonModifiers: UInt32(cmdKey))
+    #expect(f1.menuShortcut?.key.character == KeyEquivalent("\u{F704}").character)
+    #expect(f1.menuShortcut?.modifiers == .command)
+
+    let arrow = HotkeyBinding(keyCode: 126, carbonModifiers: 0)
+    #expect(arrow.menuShortcut?.key.character == KeyEquivalent.upArrow.character)
+    #expect(arrow.menuShortcut?.modifiers == [])
 }
 
 @MainActor

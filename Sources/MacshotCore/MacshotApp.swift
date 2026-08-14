@@ -23,18 +23,21 @@ struct MenuContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        // No keyboard equivalent: the configured global hotkey is the one
-        // combination that starts a capture, and it lives in Settings → Hotkeys.
+        // Each entry advertises its configured global hotkey (Settings →
+        // Hotkeys), not a menu-only combination: nil binding, no shortcut drawn.
         Button("Capture") {
             Task { await CaptureService.captureOverlay() }
         }
+        .keyboardShortcut(store.config.hotkeys.capture?.menuShortcut)
         Divider()
         Button("Pick Color") {
             Task { await ColorSampler.run(copyToClipboard: true) }
         }
+        .keyboardShortcut(store.config.hotkeys.colorPicker?.menuShortcut)
         Button("Magnifier") {
             Task { await ColorSampler.run(copyToClipboard: false) }
         }
+        .keyboardShortcut(store.config.hotkeys.magnifier?.menuShortcut)
         Divider()
         let recents = store.config.recents.filter {
             FileManager.default.fileExists(atPath: $0)
