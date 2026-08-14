@@ -167,9 +167,6 @@ final class RegionPickerView: NSView {
     private var movingLoupeCircle: LoupeCircle?
     private var rotatingAnnotation: Bool = false
     private let handleSize: CGFloat = 10
-    /// The Selection moves by a band along its edges, not by its whole
-    /// interior: the inside now belongs to the annotation marquee.
-    private let selectionBorderBand: CGFloat = 8
     /// Size of the floating delete affordance beside a multi-selection.
     private let deleteAffordanceSize: CGFloat = 18
 
@@ -530,13 +527,6 @@ final class RegionPickerView: NSView {
         toolbar.setCurrent(.select)
         refreshToolOptions()
 
-        let hint = OverlayTooltipView(
-            text: "Space to move · Shift for square · Option to ignore edges"
-        )
-        hint.isHidden = true
-        addSubview(hint)
-        selectingHint = hint
-
         let box = ResolutionBoxView()
         box.isHidden = true
         box.onSizeCommitted = { [weak self] width, height in
@@ -570,8 +560,7 @@ final class RegionPickerView: NSView {
         if requiresSelection {
             toolbar.isHidden = (activeSelection == nil)
         }
-        let hintVisible = showOverlayHints && selectionGesture != nil && liveSelectionRect != nil
-        selectingHint?.isHidden = !hintVisible
+        let hintSize = refreshSelectingHint()
         refreshResolutionBox()
 
         guard let activeSelection else {
@@ -595,7 +584,7 @@ final class RegionPickerView: NSView {
             boxes: .init(
                 toolStrip: toolbar.isHidden ? nil : toolbar.frame.size,
                 resolutionBox: boxPlaceable ? resolutionBox?.frame.size : nil,
-                hint: hintVisible ? selectingHint?.frame.size : nil
+                hint: hintSize
             )
         )
         if let rect = placed.toolStrip, toolbar.frame.origin != rect.origin {
@@ -608,6 +597,38 @@ final class RegionPickerView: NSView {
         if let rect = placed.hint, let hint = selectingHint, hint.frame.origin != rect.origin {
             hint.setFrameOrigin(rect.origin)
         }
+    }
+
+    /// What the hint chip says. While a drag is live it names the constraints
+    /// that drag understands; once the Selection is committed it names the ways
+    /// to move it, which is the whole reason the chip outlives the drag —
+    /// dragging the interior and nudging with the arrows are otherwise
+    /// invisible, and Space stops meaning anything the moment the mouse is up.
+    private var selectingHintText: String? {
+        guard showOverlayHints, currentTool == .select else { return nil }
+        if selectionGesture != nil, liveSelectionRect != nil {
+            return "Space to move · Shift for square · Option to ignore edges"
+        }
+        guard selection != nil else { return nil }
+        return "Drag inside to move · Arrows nudge · Handles resize"
+    }
+
+    /// Brings the chip in line with `selectingHintText` and reports the size
+    /// the placement solver should reserve for it (nil when it is not showing).
+    /// The chip sizes itself at init, so new text means a new view.
+    private func refreshSelectingHint() -> CGSize? {
+        guard let text = selectingHintText else {
+            selectingHint?.removeFromSuperview()
+            selectingHint = nil
+            return nil
+        }
+        if selectingHint?.text != text {
+            selectingHint?.removeFromSuperview()
+            let chip = OverlayTooltipView(text: text)
+            addSubview(chip)
+            selectingHint = chip
+        }
+        return selectingHint?.frame.size
     }
 
     // MARK: Resolution box
@@ -1680,16 +1701,18 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // With the select tool, an existing Selection resizes via its handles and
-        // moves via a band along its edges. Its interior over empty canvas now
-        // belongs to the annotation marquee.
+        // With the select tool, an existing Selection resizes via its handles
+        // and moves by a drag anywhere inside it — the gesture every other app
+        // teaches, and the one users reach for first. The annotation marquee
+        // used to own the interior and silently dropped the Selection instead
+        // of moving it; it lives on Command-drag now.
         if currentTool == .select, let existing = selection {
             if let handle = AnnotationGeometry.rectHandle(at: point, in: existing, handleSize: handleSize) {
                 beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
                 return
             }
             if existing.contains(point) {
-                if existing.insetBy(dx: selectionBorderBand, dy: selectionBorderBand).contains(point) {
+                if event.modifierFlags.contains(.command) {
                     clearSelection()
                     marquee = (origin: point, current: point)
                     needsDisplay = true
@@ -1779,6 +1802,11 @@ final class RegionPickerView: NSView {
             onSelectionActivity?(selection != nil)
             layoutChrome()
             needsDisplay = true
+            // The closed hand a move drag set has nothing left to hold.
+            updateCursor(
+                at: convert(event.locationInWindow, from: nil),
+                modifiers: event.modifierFlags
+            )
             if wasBareClick { handleBareClick(with: event, allowsDisplaySeeding: true) }
             return
         }
@@ -1912,7 +1940,23 @@ final class RegionPickerView: NSView {
         } else {
             overElement = hitAnnotationID(at: point) != nil
         }
-        (manipulates && overElement ? NSCursor.openHand : NSCursor.crosshair).set()
+        if manipulates, overElement {
+            NSCursor.openHand.set()
+            return
+        }
+        // The Selection's interior moves it, and that gesture has no other
+        // affordance — no drawn band, no glyph — so the cursor is what says it
+        // is grabbable. Command turns the interior back into the annotation
+        // marquee, which draws rather than grabs, so it reads as a crosshair.
+        if currentTool == .select, !modifiers.contains(.command),
+           let existing = selection, existing.contains(point),
+           AnnotationGeometry.rectHandle(
+               at: point, in: existing, handleSize: handleSize
+           ) == nil {
+            NSCursor.openHand.set()
+            return
+        }
+        NSCursor.crosshair.set()
     }
 
     /// With snap armed and no selection in progress, the topmost window under
@@ -2202,6 +2246,33 @@ final class RegionPickerView: NSView {
 
     // MARK: Selection gesture plumbing
 
+    /// How far an arrow key moves the Selection, in flipped view points.
+    /// Coarse is Shift, for crossing distance without holding the key down.
+    private static func nudgeDelta(forKeyCode code: UInt16, coarse: Bool) -> CGSize? {
+        let step: CGFloat = coarse ? 10 : 1
+        switch code {
+        case 123: return CGSize(width: -step, height: 0)
+        case 124: return CGSize(width: step, height: 0)
+        case 125: return CGSize(width: 0, height: step)
+        case 126: return CGSize(width: 0, height: -step)
+        default: return nil
+        }
+    }
+
+    /// Slides the committed Selection, clamped to the display: holding an arrow
+    /// runs it to the edge and stops rather than refusing the last step.
+    private func nudgeSelection(by delta: CGSize) {
+        guard let current = selection else { return }
+        let moved = SelectionGeometry.translated(
+            current.offsetBy(dx: delta.width, dy: delta.height), into: bounds
+        )
+        guard moved != current else { return }
+        selection = moved
+        invalidateComposition()
+        layoutChrome()
+        needsDisplay = true
+    }
+
     private func beginSelectionGesture(
         _ kind: SelectionGesture.Kind,
         at point: CGPoint,
@@ -2212,6 +2283,9 @@ final class RegionPickerView: NSView {
         gesture.optionHeld = event?.modifierFlags.contains(.option) ?? false
         gesture.lockedRatio = aspectLockRatio
         selectionGesture = gesture
+        // The hand closes for the duration of the drag, the way a grabbed thing
+        // does everywhere else; mouse-up puts the cursor back.
+        if case .moving = kind { NSCursor.closedHand.set() }
         layoutChrome()
         needsDisplay = true
     }
@@ -2328,6 +2402,15 @@ final class RegionPickerView: NSView {
             // Auto-repeat must not re-arm: re-resolving the span on every
             // repeat would flicker the preview under a still cursor.
             if !event.isARepeat { armAutoMeasure(axis) }
+            return
+        }
+        // Arrow keys nudge a committed Selection — 1pt, or 10 with Shift. A
+        // crop that is a few pixels out is otherwise a mouse job, and the mouse
+        // is the wrong instrument for a few pixels. Annotations keep the keys
+        // when any of them is selected.
+        if currentTool == .select, selection != nil, selectedIDs.isEmpty,
+           let delta = Self.nudgeDelta(forKeyCode: event.keyCode, coarse: shift) {
+            nudgeSelection(by: delta)
             return
         }
         // Tab (48) toggles window snap; the session decides whether it takes.

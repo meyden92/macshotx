@@ -263,10 +263,12 @@ func restylingASelectedSetAppliesToAllOfThemAsOneEntry() {
     drag(view, window, from: CGPoint(x: 30, y: 30), to: CGPoint(x: 80, y: 80))
     drag(view, window, from: CGPoint(x: 120, y: 120), to: CGPoint(x: 180, y: 180))
 
-    // A Selection to marquee inside, then a marquee across both.
+    // A Selection to marquee inside, then a Command-marquee across both — a
+    // plain drag inside the Selection moves it instead.
     view.keyDown(with: key("s", 1, window))
     drag(view, window, from: CGPoint(x: 5, y: 5), to: CGPoint(x: 295, y: 295))
-    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250))
+    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250),
+         modifiers: [.command])
     #expect(view.annotations.count == 2)
 
     row(view)?.onLineWidthSelected?(9)
@@ -291,7 +293,8 @@ func theOptionsRowShowsWhatASelectedSetHasInCommon() {
 
     view.keyDown(with: key("s", 1, window))
     drag(view, window, from: CGPoint(x: 5, y: 5), to: CGPoint(x: 295, y: 295))
-    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250))
+    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250),
+         modifiers: [.command])
 
     let shared = Tool.rectangle.options.intersection(Annotation.arrow(
         from: .zero, to: .zero, StrokeStyle(color: .systemRed, lineWidth: 3)
@@ -343,7 +346,8 @@ func undoOfADeleteRestoresTheAnnotationsInTheirOriginalZOrder() {
     // Marquee all three and delete them in one step.
     view.keyDown(with: key("s", 1, window))
     drag(view, window, from: CGPoint(x: 5, y: 120), to: CGPoint(x: 295, y: 295))
-    drag(view, window, from: CGPoint(x: 15, y: 150), to: CGPoint(x: 250, y: 10))
+    drag(view, window, from: CGPoint(x: 15, y: 150), to: CGPoint(x: 250, y: 10),
+         modifiers: [.command])
     #expect(view.annotations.count == 3)
     view.keyDown(with: key("\u{08}", 51, window))
     #expect(view.annotations.isEmpty)
@@ -461,7 +465,8 @@ func theMarqueeWorksInTheEditorOnceThereIsASelectionToMarqueeInside() {
     // gesture rule as the capture overlay, not a different one.
     view.keyDown(with: key("s", 1, window))
     drag(view, window, from: CGPoint(x: 5, y: 5), to: CGPoint(x: 295, y: 295))
-    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250))
+    drag(view, window, from: CGPoint(x: 15, y: 15), to: CGPoint(x: 250, y: 250),
+         modifiers: [.command])
 
     view.keyDown(with: key("\u{08}", 51, window))
     #expect(view.annotations.isEmpty, "A marquee should select both in the editor too")

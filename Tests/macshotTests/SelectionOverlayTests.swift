@@ -206,21 +206,34 @@ func hoveringAToolButtonShowsItsTooltip() async {
 
 // MARK: - Ticket 08: selecting-state hint
 
+/// The chip currently on the overlay, if any. It is rebuilt rather than
+/// toggled, because it says something different in each state.
+@MainActor
+private func hintText(_ view: RegionPickerView) -> String? {
+    view.subviews.compactMap { $0 as? OverlayTooltipView }
+        .first { $0.text.contains("move") }?.text
+}
+
 @MainActor
 @Test
-func hintAppearsDuringAGestureAndVanishesAfter() async {
+func theHintNamesTheGestureConstraintsAndThenHowToMoveWhatWasDrawn() async {
     let (view, window) = makeHostedView(width: 900, height: 600)
-    let hint = view.subviews.compactMap { $0 as? OverlayTooltipView }
-        .first { $0.text.contains("Space") }
-    #expect(hint != nil, "The selecting-state hint view exists")
-    #expect(hint?.isHidden == true, "Hidden while no gesture is in flight")
+    #expect(hintText(view) == nil, "Nothing to say before there is a Selection")
 
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
     view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
-    #expect(hint?.isHidden == false, "Visible while shaping the Selection")
+    #expect(hintText(view)?.contains("Space") == true,
+            "While shaping the Selection the hint names that gesture's constraints")
 
     view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
-    #expect(hint?.isHidden == true, "Gone the moment the gesture ends")
+    // The whole point of the chip outliving the drag: dragging the interior
+    // and nudging with the arrows have no other affordance, and Space has
+    // stopped meaning anything now that the mouse is up.
+    let committed = hintText(view)
+    #expect(committed?.contains("Drag inside to move") == true,
+            "Once committed the hint says how to move it")
+    #expect(committed?.contains("Arrows") == true, "and names the keyboard route")
+    #expect(committed?.contains("Space") == false, "Space is gone with the gesture")
 }
 
 @MainActor
@@ -236,10 +249,80 @@ func hintStaysSuppressedByTheSetting() async {
 
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
     view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
+    #expect(hintText(view) == nil, "The hint honours the suppression setting")
 
-    let hint = view.subviews.compactMap { $0 as? OverlayTooltipView }
-        .first { $0.text.contains("Space") }
-    #expect(hint?.isHidden == true, "The hint honours the suppression setting")
+    view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
+    #expect(hintText(view) == nil, "including the committed-Selection hint")
+}
+
+// MARK: - Moving a committed Selection (issue 37)
+
+private let leftArrow: UInt16 = 123
+private let rightArrow: UInt16 = 124
+private let downArrow: UInt16 = 125
+private let upArrow: UInt16 = 126
+
+/// Draws the Selection (20,20)–(120,120) and reports the rectangle a commit
+/// would carry — the seam that states where the Selection actually is.
+@MainActor
+private func selectionAfter(
+    _ view: RegionPickerView, _ window: NSWindow, _ act: () -> Void
+) -> NSRect? {
+    view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 20, y: 20), in: view, window: window))
+    view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 120, y: 120), in: view, window: window))
+    view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 120, y: 120), in: view, window: window))
+
+    act()
+
+    var committed: NSRect?
+    view.onCommitRequested = { committed = $0 }
+    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
+    return committed
+}
+
+@MainActor
+@Test
+func arrowKeysNudgeTheCommittedSelectionAndShiftMovesItFurther() async {
+    let (view, window) = makeHostedView()
+    let rect = selectionAfter(view, window) {
+        view.keyDown(with: keyEvent("", keyCode: rightArrow, window: window))
+        view.keyDown(with: keyEvent("", keyCode: rightArrow, window: window))
+        view.keyDown(with: keyEvent("", keyCode: downArrow, window: window, modifiers: [.shift]))
+    }
+    #expect(rect?.origin == CGPoint(x: 22, y: 30),
+            "Two fine steps right and one coarse step down")
+    #expect(rect?.size == CGSize(width: 100, height: 100), "A nudge never resizes")
+}
+
+@MainActor
+@Test
+func nudgingRunsTheSelectionToTheDisplayEdgeAndStopsThere() async {
+    let (view, window) = makeHostedView()
+    // Ten coarse steps left is 100pt from an origin 20pt off the edge.
+    let rect = selectionAfter(view, window) {
+        for _ in 0..<10 {
+            view.keyDown(with: keyEvent("", keyCode: leftArrow, window: window, modifiers: [.shift]))
+            view.keyDown(with: keyEvent("", keyCode: upArrow, window: window, modifiers: [.shift]))
+        }
+    }
+    #expect(rect?.origin == .zero, "Held arrows clamp at the display edge")
+    #expect(rect?.size == CGSize(width: 100, height: 100), "and still never resize")
+}
+
+@MainActor
+@Test
+func arrowKeysLeaveTheSelectionAloneWhileAnAnnotationIsSelected() async {
+    let (view, window) = makeHostedView()
+    let rect = selectionAfter(view, window) {
+        // Draw a rectangle inside the Selection; it stays selected, so the
+        // arrows belong to it rather than to the crop.
+        view.keyDown(with: keyEvent("r", keyCode: 15, window: window))
+        view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 40, y: 40), in: view, window: window))
+        view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 80, y: 80), in: view, window: window))
+        view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 80, y: 80), in: view, window: window))
+        view.keyDown(with: keyEvent("", keyCode: rightArrow, window: window))
+    }
+    #expect(rect?.origin == CGPoint(x: 20, y: 20), "The crop should not have moved")
 }
 
 // MARK: - Ticket 09: Resolution box
