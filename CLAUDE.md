@@ -71,9 +71,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 Pure SwiftPM — there is no Xcode project (`docs/adr/0004-swiftpm-no-xcode.md`). The dev loop is editor + CLI: `swift build`, `swift test`, and `scripts/`. Point the user at those for every build/run/signing task — never at Xcode.
 
 - `scripts/run.sh` — build → bundle → relaunch the app, tailing its log.
-- App version and Info.plist keys live in `scripts/bundle.sh`.
+- Info.plist keys live in `scripts/bundle.sh`; the version is an argument, passed down from the git tag by the release workflow.
 - Dev builds sign with the local "Apple Development" cert via raw `codesign` — this works from the CLI (xcodebuild's automatic-signing auth failure no longer applies). Ad-hoc fallback makes macOS re-prompt for Screen Recording after rebuilds.
-- `scripts/release.sh` — local-only release: Developer ID + notarization + `.dmg`.
+- `scripts/release.sh <version>` — Developer ID + notarization + styled `.dmg`. Needs `brew install create-dmg`. Notarizes locally via the `macshot-notary` keychain profile, or with an App Store Connect key when `NOTARY_KEY_PATH` is set.
+- Releases publish from `.github/workflows/release.yml` on pushing a `v*` tag; it runs the same `release.sh`. Team ID is `P3VNJ55K48`.
 
 ## Workflow
 

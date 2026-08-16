@@ -5,10 +5,17 @@ configuration="${1:-debug}"
 case "$configuration" in
     debug|release) ;;
     *)
-        echo "usage: $0 [debug|release]" >&2
+        echo "usage: $0 [debug|release] [version]" >&2
         exit 1
         ;;
 esac
+
+# Releases pass the version from the git tag; local dev builds get a placeholder.
+version="${2:-0.0.0}"
+if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+    echo "error: version must be dot-separated digits, got '$version'" >&2
+    exit 1
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -20,7 +27,7 @@ mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 install -m 755 "$bin_path/macshot" "$app_path/Contents/MacOS/macshot"
 install -m 644 "$repo_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 
-cat > "$app_path/Contents/Info.plist" <<'PLIST'
+cat > "$app_path/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -42,9 +49,9 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.1</string>
+    <string>$version</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$version</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>LSUIElement</key>
