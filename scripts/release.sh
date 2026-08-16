@@ -8,6 +8,11 @@ cd "$repo_root"
 # The release version, normally the git tag without its leading "v".
 version="${1:-0.0.0}"
 
+# CFBundleShortVersionString only accepts dot-separated integers, so a
+# prerelease suffix is dropped from what goes in the bundle. The full version
+# still names the release and its artifact.
+bundle_version="${version%%-*}"
+
 identities="$(security find-identity -v -p codesigning 2>&1 || true)"
 developer_id="$(printf '%s\n' "$identities" | awk '/"Developer ID Application/{print $2; exit}')"
 if [[ -z "$developer_id" ]]; then
@@ -41,7 +46,7 @@ INSTRUCTIONS
 fi
 
 swift build -c release
-"$script_dir/bundle.sh" release "$version"
+"$script_dir/bundle.sh" release "$bundle_version"
 
 app_path="$repo_root/dist/macshot.app"
 dmg_path="$repo_root/dist/macshot.dmg"
