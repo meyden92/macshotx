@@ -257,6 +257,7 @@ struct CaptureSettingsTab: View {
                     percentSlider("Size", \.capture.watermark.scalePercent, in: 1...100)
                     percentSlider("Margin", \.capture.watermark.marginPercent, in: 0...40)
                     percentSlider("Opacity", \.capture.watermark.opacityPercent, in: 1...100)
+                    WatermarkPreview(settings: store.config.capture.watermark)
                     Text("Size and margin are percentages of the capture's width, so "
                          + "one setting looks the same on a fullscreen shot and on a "
                          + "small crop.")
