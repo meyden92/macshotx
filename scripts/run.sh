@@ -8,7 +8,7 @@ cd "$repo_root"
 swift build
 "$script_dir/bundle.sh" debug
 pkill -x macshot || true
-open "$repo_root/dist/macshot.app"
+open "$repo_root/dist/macshot-debug.app"
 
 # `open` detaches the app, so Ctrl+C on the tail below would otherwise leave it
 # running. Installed only after the launch so a failed build never kills an

@@ -73,6 +73,7 @@ Pure SwiftPM — there is no Xcode project (`docs/adr/0004-swiftpm-no-xcode.md`)
 - `scripts/run.sh` — build → bundle → relaunch the app, tailing its log.
 - Info.plist keys live in `scripts/bundle.sh`; the version is an argument, passed down from the git tag by the release workflow.
 - Dev builds sign with the local "Apple Development" cert via raw `codesign` — this works from the CLI (xcodebuild's automatic-signing auth failure no longer applies). Ad-hoc fallback makes macOS re-prompt for Screen Recording after rebuilds.
+- Dev builds ship as `dev.macshot.app.debug` / "macshot (Debug)", releases as `dev.macshot.app` / "macshot". TCC pins its grants to bundle id + signature, and the two channels are signed differently, so a shared id would make each launch invalidate the other's Screen Recording grant. Config, log, keychain service and pasteboard type are addressed by fixed strings and stay shared.
 - `scripts/release.sh <version>` — Developer ID + notarization + styled `.dmg`. Needs `brew install create-dmg`. Notarizes locally via the `macshot-notary` keychain profile, or with an App Store Connect key when `NOTARY_KEY_PATH` is set.
 - Releases publish from `.github/workflows/release.yml` on pushing a `v*` tag; it runs the same `release.sh`. Team ID is `P3VNJ55K48`.
 

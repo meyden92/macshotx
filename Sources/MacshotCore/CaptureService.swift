@@ -4,6 +4,7 @@ import ScreenCaptureKit
 enum CaptureError: LocalizedError {
     case noDisplayUnderCursor
     case captureFailed(Error)
+    case screenRecordingDenied
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,10 @@ enum CaptureError: LocalizedError {
             return "Could not identify a display to capture."
         case .captureFailed(let error):
             return "Capture failed: \(error.localizedDescription)"
+        case .screenRecordingDenied:
+            return "macshot needs Screen Recording permission. Grant it in System "
+                + "Settings › Privacy & Security › Screen & System Audio Recording, "
+                + "then relaunch macshot."
         }
     }
 }
@@ -20,6 +25,10 @@ enum CaptureService {
     /// decide what gets captured (ADR 0010).
     @MainActor
     static func captureOverlay() async {
+        guard screenRecordingAllowed() else {
+            await notifyCaptureFailure(CaptureError.screenRecordingDenied)
+            return
+        }
         switch await CaptureOverlaySession.run() {
         case .committed(let commit):
             playFeedback()
@@ -37,6 +46,30 @@ enum CaptureService {
         case .failed(let error):
             await notifyCaptureFailure(error)
         }
+    }
+
+    // MARK: - Permission
+
+    /// Whether a capture may go ahead, raising the system prompt when it may
+    /// not. macOS asks for Screen Recording on the first call that needs it and
+    /// leaves that call hanging until the user answers — so the ask has to
+    /// happen here, before the overlay exists. Once the overlay is up it covers
+    /// every display and swallows the clicks the alert is waiting for, and the
+    /// alert holds the key focus the overlay's Esc needs: the machine is locked
+    /// out of its own screen until macshot is killed.
+    ///
+    /// The two calls are injected so the closed door can be tested without a
+    /// real TCC state.
+    @MainActor
+    static func screenRecordingAllowed(
+        preflight: () -> Bool = CGPreflightScreenCaptureAccess,
+        request: () -> Void = { _ = CGRequestScreenCaptureAccess() }
+    ) -> Bool {
+        guard !preflight() else { return true }
+        // No-op once the user has refused: then only the banner's instructions
+        // and System Settings help.
+        request()
+        return false
     }
 
     // MARK: - ScreenCaptureKit
