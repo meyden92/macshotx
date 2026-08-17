@@ -16,9 +16,18 @@ let package = Package(
         .library(name: "MacshotCore", targets: ["MacshotCore"]),
         .executable(name: "macshot", targets: ["macshot"])
     ],
+    dependencies: [
+        // In-app updater. Binary xcframework; scripts/bundle.sh embeds it into
+        // the app bundle. Pinned exactly (Package.resolved is gitignored) and
+        // kept in sync with the tools download in .github/workflows/release.yml.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+    ],
     targets: [
         .target(
             name: "MacshotCore",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources/MacshotCore",
             swiftSettings: strictSwiftSettings
         ),
