@@ -37,13 +37,29 @@ ditto "$bin_path/Sparkle.framework" "$app_path/Contents/Frameworks/Sparkle.frame
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
     "$app_path/Contents/MacOS/macshot"
 
-# Sparkle checks in the background only in release bundles; dev builds carry
-# the placeholder version 0.0.0 and would otherwise nag about every release.
-# The manual "Check for Updates…" menu item works in both.
+# What separates a dev bundle from a release one:
+#
+# - Sparkle checks in the background only in release bundles; dev builds carry
+#   the placeholder version 0.0.0 and would otherwise nag about every release.
+#   The manual "Check for Updates…" menu item works in both.
+# - Dev builds get their own bundle identifier and name. TCC keeps one grant per
+#   identifier and pins it to the code signature, and dev builds are signed with
+#   the local Apple Development cert while releases are signed with Developer ID
+#   — under a shared identifier every switch between the two invalidates the
+#   other's Screen Recording grant, and it can only be repaired by removing and
+#   re-adding the app in System Settings by hand. Separate identifiers means one
+#   grant per channel, each stable for as long as its own signature is.
+#   Everything the two deliberately share — the config, the log, the keychain
+#   service, the annotation pasteboard type — is addressed by a fixed path or
+#   string, not by the bundle identifier, so it stays shared.
 if [[ "$configuration" == release ]]; then
     auto_update_check="<true/>"
+    bundle_id="dev.macshot.app"
+    bundle_name="macshot"
 else
     auto_update_check="<false/>"
+    bundle_id="dev.macshot.app.debug"
+    bundle_name="macshot (Debug)"
 fi
 
 cat > "$app_path/Contents/Info.plist" <<PLIST
@@ -60,11 +76,11 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.macshot.app</string>
+    <string>$bundle_id</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>macshot</string>
+    <string>$bundle_name</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
