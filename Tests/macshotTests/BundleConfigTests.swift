@@ -26,3 +26,20 @@ func theBundleDeclaresItselfAUIElementSoNoDockIconAppears() throws {
     let afterKey = script.components(separatedBy: "<key>LSUIElement</key>")[1]
     #expect(afterKey.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<true/>"))
 }
+
+// TCC keeps one Screen Recording grant per bundle identifier and pins it to the
+// signature, and it names the app in System Settings after the bundle's file
+// name. Dev and release builds are signed differently, so sharing either would
+// make each build invalidate the other's grant — or, sharing only the file
+// name, leave two indistinguishable rows behind.
+
+@Test
+func devAndReleaseBundlesCannotBeMistakenForEachOther() throws {
+    let script = try bundleScriptSource()
+    #expect(script.contains("bundle_id=\"dev.macshot.app\""))
+    #expect(script.contains("bundle_id=\"dev.macshot.app.debug\""))
+    #expect(script.contains("app_name=\"macshot\""))
+    #expect(script.contains("app_name=\"macshot-debug\""))
+    // release.sh signs, notarizes and packages dist/macshot.app by that name.
+    #expect(script.contains("app_path=\"$repo_root/dist/$app_name.app\""))
+}

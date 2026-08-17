@@ -48,3 +48,36 @@ func anUncheckedPermissionReadsAsUnknownRatherThanGranted() {
     #expect(model.status(.screenRecording) == nil)
     #expect(model.status(.notifications) == nil)
 }
+
+// A capture that starts without Screen Recording used to lock the machine out
+// of its own screen: the overlay went up while ScreenCaptureKit was still
+// waiting for the user to answer a prompt the overlay itself covered.
+
+@MainActor
+@Test
+func aCaptureWithoutScreenRecordingAsksBeforeAnythingIsOnScreen() {
+    var prompts = 0
+    let allowed = CaptureService.screenRecordingAllowed(
+        preflight: { false }, request: { prompts += 1 }
+    )
+    #expect(!allowed, "the overlay must not go up while the prompt is unanswered")
+    #expect(prompts == 1)
+}
+
+@MainActor
+@Test
+func aGrantedCaptureIsNotAskedAboutAgain() {
+    var prompts = 0
+    let allowed = CaptureService.screenRecordingAllowed(
+        preflight: { true }, request: { prompts += 1 }
+    )
+    #expect(allowed)
+    #expect(prompts == 0)
+}
+
+@Test
+func theDeniedCaptureNamesThePaneThatFixesIt() {
+    let message = CaptureError.screenRecordingDenied.errorDescription ?? ""
+    #expect(message.contains("Screen Recording"))
+    #expect(message.contains("System Settings"))
+}
