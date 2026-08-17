@@ -20,6 +20,7 @@ public struct MacshotApp: App {
 
 struct MenuContent: View {
     @ObservedObject private var store = ConfigStore.shared
+    @ObservedObject private var updater = UpdaterService.shared
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -62,6 +63,10 @@ struct MenuContent: View {
             NSApp.activate()
             openSettings()
         }
+        Button("Check for Updates…") {
+            updater.checkForUpdates()
+        }
+        .disabled(!updater.canCheckForUpdates)
         Divider()
         Button("Quit macshot") {
             NSApplication.shared.terminate(nil)

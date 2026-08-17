@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:macshot}",
+            "name": "Debug macshot",
+            "target": "macshot",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug macshot"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:macshot}",
+            "name": "Release macshot",
+            "target": "macshot",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release macshot"
+        }
+    ]
+}

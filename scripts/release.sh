@@ -50,7 +50,22 @@ swift build -c release
 
 app_path="$repo_root/dist/macshot.app"
 dmg_path="$repo_root/dist/macshot.dmg"
-codesign --force --deep --options runtime --sign "$developer_id" \
+
+# Sparkle ships pre-signed nested executables whose own entitlements must
+# survive re-signing, so the bundle is signed inside-out instead of --deep
+# (which would stamp the app's entitlements onto them and break the updater).
+# Everything gets the hardened runtime, which notarization requires.
+sparkle_fw="$app_path/Contents/Frameworks/Sparkle.framework"
+codesign --force --options runtime --preserve-metadata=entitlements \
+    --sign "$developer_id" "$sparkle_fw/Versions/B/XPCServices/Downloader.xpc"
+codesign --force --options runtime --preserve-metadata=entitlements \
+    --sign "$developer_id" "$sparkle_fw/Versions/B/XPCServices/Installer.xpc"
+codesign --force --options runtime --sign "$developer_id" \
+    "$sparkle_fw/Versions/B/Autoupdate"
+codesign --force --options runtime --sign "$developer_id" \
+    "$sparkle_fw/Versions/B/Updater.app"
+codesign --force --options runtime --sign "$developer_id" "$sparkle_fw"
+codesign --force --options runtime --sign "$developer_id" \
     --entitlements "$script_dir/macshot.entitlements" "$app_path"
 
 work_dir="$(mktemp -d)"

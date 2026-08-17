@@ -92,6 +92,50 @@ jobs:
           xcrun stapler validate "$mount_point/macshot.app"
           hdiutil detach "$mount_point" -quiet
 
+      - name: Generate the Sparkle appcast
+        # Prereleases get no appcast: the app's SUFeedURL resolves through
+        # releases/latest/download, which only ever points at stable releases,
+        # so a prerelease appcast would never be served anyway.
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # Keep this tools version in sync with the Sparkle dependency in
+          # Package.swift.
+          curl -sSfL -o "$RUNNER_TEMP/sparkle-tools.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle-tools"
+          tar -xJf "$RUNNER_TEMP/sparkle-tools.tar.xz" -C "$RUNNER_TEMP/sparkle-tools"
+
+          key_file="$RUNNER_TEMP/sparkle-ed-private-key"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$key_file"
+          # Prints `sparkle:edSignature="..." length="..."`, pasted verbatim
+          # into the enclosure below.
+          signature="$("$RUNNER_TEMP/sparkle-tools/bin/sign_update" \
+            --ed-key-file "$key_file" dist/macshot.dmg)"
+          rm -f "$key_file"
+
+          cat > dist/appcast.xml <<APPCAST
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>macshot</title>
+              <item>
+                <title>macshot $version</title>
+                <link>https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}</link>
+                <sparkle:version>$version</sparkle:version>
+                <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+                <sparkle:fullReleaseNotesLink>https://github.com/${GITHUB_REPOSITORY}/releases</sparkle:fullReleaseNotesLink>
+                <enclosure
+                  url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/macshot-$version.dmg"
+                  $signature
+                  type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          APPCAST
+
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,11 +148,16 @@ jobs:
             *-*) prerelease="--prerelease" ;;
           esac
           mv dist/macshot.dmg "dist/macshot-$version.dmg"
+          assets=("dist/macshot-$version.dmg")
+          # Stable releases carry the appcast the in-app updater feeds on.
+          if [[ -f dist/appcast.xml ]]; then
+            assets+=("dist/appcast.xml")
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "macshot $version" \
             --generate-notes \
             $prerelease \
-            "dist/macshot-$version.dmg"
+            "${assets[@]}"
 
       - name: Clean up signing material
         if: always()
