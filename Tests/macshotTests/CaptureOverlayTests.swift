@@ -26,6 +26,19 @@ func clearingSelectionOnlyAffectsTheOwner() {
     #expect(model.selectionOwner == nil)
 }
 
+@Test
+func seedingIsRefusedWhileAnotherDisplayOwnsTheSelection() {
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
+    #expect(model.canSeed(on: 0))
+    #expect(model.canSeed(on: 1))
+    _ = model.startSelection(on: 0)
+    // The owner may re-seed itself; the other display may not take over.
+    #expect(model.canSeed(on: 0))
+    #expect(!model.canSeed(on: 1))
+    model.clearSelection(on: 0)
+    #expect(model.canSeed(on: 1))
+}
+
 // MARK: - Session model: snap toggling
 
 @Test

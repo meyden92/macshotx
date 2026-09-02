@@ -42,6 +42,16 @@ struct CaptureSessionModel: Equatable {
         return [owner]
     }
 
+    /// Whether a seeding route (`F`, a bare click, a snap click) may put a
+    /// Selection on this display. Each is a single event — one keypress, one
+    /// click — so any of them can be a slip, and a slip must not discard the
+    /// Selection another display holds along with the work drawn on it. A
+    /// drag is the one route that takes the Selection over (see
+    /// `startSelection`): sustained, and unmistakably meant.
+    func canSeed(on display: Int) -> Bool {
+        selectionOwner == nil || selectionOwner == display
+    }
+
     /// A display's selection ended empty.
     mutating func clearSelection(on display: Int) {
         guard resolution == .pending else { return }
