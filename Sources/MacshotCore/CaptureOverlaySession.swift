@@ -369,10 +369,11 @@ final class CaptureOverlaySession {
     }
 
     /// `F`: fills the Selection to the display under the cursor while that
-    /// overlay is idle; in every other state it keeps selecting the fill-rect
-    /// tool, whose shortcut it is.
+    /// overlay is idle and may seed; in every other state it keeps selecting
+    /// the fill-rect tool, whose shortcut it is.
     private func fullscreenKeyPressed() {
-        if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle {
+        if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle,
+           model.canSeed(on: index) {
             seedWholeDisplay(on: index)
             return
         }
