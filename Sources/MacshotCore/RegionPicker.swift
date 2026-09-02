@@ -332,7 +332,7 @@ final class RegionPickerView: NSView {
         facts.snapArmed = snapArmed
         // Resolved at the click itself rather than off the hover highlight —
         // the pointer may not have moved since the window list arrived.
-        facts.windowUnderCursor = onSnapHover?(point) != nil
+        facts.windowUnderCursor = snapPoint(for: point).flatMap { onSnapHover?($0) } != nil
         if let existing = selection {
             facts.hasSelection = true
             facts.insideSelection = existing.contains(point)
@@ -345,10 +345,9 @@ final class RegionPickerView: NSView {
 
     /// A click that neither dragged nor did anything tool-meaningful, judged
     /// by the click ladder against the facts its mouse-down recorded.
-    private func resolveBareClick(with event: NSEvent) {
+    private func resolveBareClick(at point: CGPoint) {
         guard let facts = pendingClick else { return }
         pendingClick = nil
-        let point = convert(event.locationInWindow, from: nil)
         switch SelectGesture.click(facts) {
         case .selectAnnotation:
             if let id = hitAnnotationID(at: point) {
@@ -362,7 +361,8 @@ final class RegionPickerView: NSView {
         case .captureWindow:
             // The window's rect is already in view space; only the part on
             // this display can be baked.
-            guard let (_, rect) = onSnapHover?(point) else { return }
+            guard let target = snapPoint(for: point), let (_, rect) = onSnapHover?(target)
+            else { return }
             commit(rect.intersection(bounds))
         case .captureDisplay:
             commit(bounds)
@@ -908,11 +908,64 @@ final class RegionPickerView: NSView {
     /// confirm — that does not need it.
     var isBeautifying: Bool { composition.beautify.enabled }
 
-    /// What post-processing applies to: the Selection, or — in the detached
-    /// editor, where no crop means the whole image — everything.
+    /// What post-processing applies to: the Selection, or with none the
+    /// whole image — the display, in the capture overlay (ADR 0013).
     private var postProcessingRect: NSRect? {
-        if let selection { return selection }
-        return requiresSelection ? nil : bounds
+        selection ?? bounds
+    }
+
+    /// How the beautify preview maps between capture points and where they
+    /// are drawn, so window snap can hover and click through the scaled
+    /// preview: a whole-display preview is shrunk, and the window under the
+    /// pointer *in the preview* is the one the user means.
+    private struct PreviewMap {
+        let capture: CGRect
+        /// Where the capture content is drawn on the overlay.
+        let content: CGRect
+        private var factor: CGFloat { content.width / capture.width }
+
+        func toScreen(_ rect: CGRect) -> CGRect {
+            CGRect(
+                x: content.minX + (rect.minX - capture.minX) * factor,
+                y: content.minY + (rect.minY - capture.minY) * factor,
+                width: rect.width * factor, height: rect.height * factor
+            )
+        }
+
+        /// Nil for a point on the backdrop, which is over no window.
+        func toCapture(_ point: CGPoint) -> CGPoint? {
+            guard content.contains(point) else { return nil }
+            return CGPoint(
+                x: capture.minX + (point.x - content.minX) / factor,
+                y: capture.minY + (point.y - content.minY) / factor
+            )
+        }
+    }
+
+    private var previewMap: PreviewMap? {
+        guard isBeautifying, let rect = postProcessingRect, rect.width >= 1, rect.height >= 1
+        else { return nil }
+        let layout = PostProcessingCompositor.layout(
+            captureSize: rect.size, settings: composition.beautify, scale: 1
+        )
+        let placement = PostProcessingCompositor.previewPlacement(
+            of: layout, capture: rect, in: bounds
+        )
+        let factor = placement.width / layout.canvas.width
+        return PreviewMap(capture: rect, content: CGRect(
+            x: placement.minX + layout.content.minX * factor,
+            y: placement.minY + layout.content.minY * factor,
+            width: layout.content.width * factor,
+            height: layout.content.height * factor
+        ))
+    }
+
+    /// The point window snap should be asked about for a pointer at `point`:
+    /// the point itself, or its place in the capture while the beautify
+    /// preview is showing it scaled.
+    private func snapPoint(for point: CGPoint) -> CGPoint? {
+        guard let map = previewMap else { return point }
+        return map.toCapture(point)
     }
 
     private func togglePostProcessing(_ control: PostProcessingControl) {
@@ -1081,56 +1134,29 @@ final class RegionPickerView: NSView {
         return image
     }
 
-    /// Where the composition sits on screen: anchored on the Selection at 1:1
-    /// when the whole canvas fits there, and otherwise shrunk uniformly and
-    /// centred so a near-fullscreen Selection does not push its backdrop off
-    /// the display.
-    private func previewPlacement(canvas: CGSize, selection: NSRect) -> NSRect {
-        let layout = PostProcessingCompositor.layout(
-            captureSize: CGSize(width: selection.width, height: selection.height),
-            settings: composition.beautify, scale: 1
-        )
-        let anchored = NSRect(
-            x: selection.minX - layout.capture.minX,
-            y: selection.minY - layout.capture.minY,
-            width: canvas.width, height: canvas.height
-        )
-        if bounds.contains(anchored) { return anchored }
-        let margin: CGFloat = 24
-        let factor = min(
-            1,
-            min(
-                (bounds.width - margin * 2) / canvas.width,
-                (bounds.height - margin * 2) / canvas.height
-            )
-        )
-        let size = CGSize(width: canvas.width * factor, height: canvas.height * factor)
-        return NSRect(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2,
-            width: size.width, height: size.height
-        )
-    }
-
     private func drawBeautifyPreview() {
         // The Selection's own dimming cutout, border and handles are gone: what
         // is on screen is the composition and nothing else.
         NSColor.black.withAlphaComponent(0.55).setFill()
         bounds.fill()
         guard let rect = postProcessingRect, let composed = composedPreview() else { return }
-        let canvas = CGSize(
-            width: CGFloat(composed.width) / scale, height: CGFloat(composed.height) / scale
-        )
         // The preview may have been composed from a downscaled capture, so the
-        // canvas is stated in the Selection's own points rather than the
-        // preview image's pixels.
+        // canvas is stated in the capture's own points rather than the
+        // preview image's pixels; the placement solver then fits it on screen.
         let layout = PostProcessingCompositor.layout(
             captureSize: CGSize(width: rect.width, height: rect.height),
             settings: composition.beautify, scale: 1
         )
-        _ = canvas
-        let placement = previewPlacement(canvas: layout.canvas, selection: rect)
+        let placement = PostProcessingCompositor.previewPlacement(
+            of: layout, capture: rect, in: bounds
+        )
         NSImage(cgImage: composed, size: placement.size).draw(in: placement)
+        // Window snap still works through the scaled preview, so its
+        // highlight is drawn where the window appears in it.
+        if snapArmed, currentTool == .select, selection == nil,
+           let map = previewMap, let (_, window) = snapHighlight {
+            drawSnapHighlight(map.toScreen(window))
+        }
     }
 
     // MARK: Colour picker
@@ -1592,11 +1618,19 @@ final class RegionPickerView: NSView {
 
     // MARK: Mouse
 
+    /// Where a click landed while the beautify preview was up; nil once it
+    /// turns into a drag, which the preview does not take.
+    private var beautifyClick: CGPoint?
+
     override func mouseDown(with event: NSEvent) {
-        // The beautify preview is a review mode: the capture is read-only until
-        // the toggle goes off again.
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
+        // The beautify preview is a review mode: the capture is read-only for
+        // annotating until the toggle goes off again (ADR 0007). A click still
+        // captures from a clean canvas, judged at mouse-up.
+        guard !isBeautifying else {
+            beautifyClick = point
+            return
+        }
         lastPointerPoint = point
         clearHoverPreview()
         // A click on the overlay itself is a click outside the picker and
@@ -1746,8 +1780,15 @@ final class RegionPickerView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
+        guard !isBeautifying else {
+            // A hand that moved more than a jitter meant a drag, and the
+            // preview has nothing for a drag to do.
+            if let start = beautifyClick, hypot(point.x - start.x, point.y - start.y) > 3 {
+                beautifyClick = nil
+            }
+            return
+        }
         // Manipulating a grabbed element wins over whatever the active tool does.
         if rotatingAnnotation, let id = selectedID, let original = manipulationOriginal {
             // Turned from the pre-drag angle every tick, so the handle tracks
@@ -1792,7 +1833,25 @@ final class RegionPickerView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard !isBeautifying else { return }
+        guard !isBeautifying else {
+            guard let start = beautifyClick else { return }
+            beautifyClick = nil
+            // The same click ladder as always, minus the rungs the preview
+            // cannot reach (nothing can be hit or selected under it); the
+            // window under the cursor is the one under it in the preview.
+            var facts = SelectGesture.Facts()
+            facts.tool = currentTool
+            facts.hasSelectedSet = !selectedIDs.isEmpty
+            facts.snapArmed = snapArmed
+            facts.windowUnderCursor = snapPoint(for: start).flatMap { onSnapHover?($0) } != nil
+            if let existing = selection {
+                facts.hasSelection = true
+                facts.insideSelection = existing.contains(start)
+            }
+            pendingClick = facts
+            resolveBareClick(at: start)
+            return
+        }
         if let gesture = selectionGesture {
             // A gesture that never produced a rectangle (a bare click) leaves
             // the committed Selection as it was.
@@ -1813,7 +1872,7 @@ final class RegionPickerView: NSView {
                 at: convert(event.locationInWindow, from: nil),
                 modifiers: event.modifierFlags
             )
-            if wasBareClick { resolveBareClick(with: event) }
+            if wasBareClick { resolveBareClick(at: convert(event.locationInWindow, from: nil)) }
             pendingClick = nil
             return
         }
@@ -1865,7 +1924,7 @@ final class RegionPickerView: NSView {
                 // nothing can still pick up the element underneath — that is
                 // what keeps elements reachable without a tool switch. The
                 // click ladder decides that and what an empty click means.
-                resolveBareClick(with: event)
+                resolveBareClick(at: convert(event.locationInWindow, from: nil))
             }
         }
         needsDisplay = true
@@ -1904,7 +1963,11 @@ final class RegionPickerView: NSView {
         // The session keys the window and moves the tool strip here whatever
         // state the overlay is in.
         onPointerMoved?()
-        guard !isBeautifying else { return }
+        guard !isBeautifying else {
+            // Only the window highlight lives on under the preview.
+            updateSnapHighlight(atWindowPoint: event.locationInWindow)
+            return
+        }
         if isAutoMeasureArmed {
             updateAutoMeasurePreview(at: point)
             return
@@ -1971,7 +2034,7 @@ final class RegionPickerView: NSView {
         guard snapArmed, currentTool == .select, let onSnapHover,
               selection == nil, selectionGesture == nil
         else { return }
-        let next = onSnapHover(convert(point, from: nil))
+        let next = snapPoint(for: convert(point, from: nil)).flatMap { onSnapHover($0) }
         if next?.candidate.id != snapHighlight?.candidate.id
             || next?.rect != snapHighlight?.rect {
             snapHighlight = next
@@ -2800,12 +2863,7 @@ final class RegionPickerView: NSView {
         // state survives so a click-no-drag can still capture the window.
         if snapArmed, currentTool == .select, selection == nil, liveSelectionRect == nil,
            selectionGesture == nil, let (_, rect) = snapHighlight {
-            NSColor.systemBlue.withAlphaComponent(0.18).setFill()
-            rect.fill()
-            NSColor.systemBlue.withAlphaComponent(0.9).setStroke()
-            let path = NSBezierPath(rect: rect)
-            path.lineWidth = 2.0
-            path.stroke()
+            drawSnapHighlight(rect)
         }
 
         if let cgCtx = NSGraphicsContext.current?.cgContext {
@@ -2898,6 +2956,15 @@ final class RegionPickerView: NSView {
                 }
             }
         }
+    }
+
+    private func drawSnapHighlight(_ rect: NSRect) {
+        NSColor.systemBlue.withAlphaComponent(0.18).setFill()
+        rect.fill()
+        NSColor.systemBlue.withAlphaComponent(0.9).setStroke()
+        let path = NSBezierPath(rect: rect)
+        path.lineWidth = 2.0
+        path.stroke()
     }
 
     /// A set of several draws one combined outline and a floating delete

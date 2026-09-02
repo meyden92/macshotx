@@ -93,6 +93,45 @@ func paddingIsAFractionOfTheLongerSide() {
     #expect(layout.capture.minX == 20, "10% of the 200pt long side")
 }
 
+// MARK: - Preview placement (ADR 0013: a whole-display preview scales to fit)
+
+@Test
+func aPaddedWholeDisplayPreviewIsShrunkToFitAndCentredKeepingItsProportions() {
+    let display = CGRect(x: 0, y: 0, width: 1000, height: 600)
+    let layout = PostProcessingCompositor.layout(
+        captureSize: display.size, padding: 100, shadowBlur: 0, shadowOffset: 0
+    )
+    let placed = PostProcessingCompositor.previewPlacement(
+        of: layout, capture: display, in: display, margin: 24
+    )
+    // The 1200×800 canvas fits 552 tall inside the 24pt margins: factor 0.69.
+    #expect(abs(placed.width - 828) < 0.001 && abs(placed.height - 552) < 0.001)
+    #expect(abs(placed.midX - 500) < 0.001 && abs(placed.midY - 300) < 0.001,
+            "Centred on the display")
+    #expect(display.contains(placed))
+}
+
+@Test
+func aSelectionWhoseCanvasFitsStaysAnchoredAtOneToOne() {
+    let display = CGRect(x: 0, y: 0, width: 1000, height: 600)
+    let capture = CGRect(x: 100, y: 100, width: 200, height: 100)
+    let layout = PostProcessingCompositor.layout(
+        captureSize: capture.size, padding: 20, shadowBlur: 0, shadowOffset: 0
+    )
+    let placed = PostProcessingCompositor.previewPlacement(of: layout, capture: capture, in: display)
+    #expect(placed == CGRect(x: 80, y: 80, width: 240, height: 140),
+            "The capture content is exactly where the Selection is")
+
+    let framed = PostProcessingCompositor.layout(
+        captureSize: capture.size, padding: 20, shadowBlur: 0, shadowOffset: 0, titleBarHeight: 28
+    )
+    let framedPlacement = PostProcessingCompositor.previewPlacement(
+        of: framed, capture: capture, in: display
+    )
+    #expect(framedPlacement.origin == CGPoint(x: 80, y: 52),
+            "With a window frame the content, not the title bar, sits on the Selection")
+}
+
 // MARK: - Rendering
 
 @MainActor

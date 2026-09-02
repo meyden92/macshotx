@@ -206,6 +206,81 @@ func theWindowFrameToggleAddsATitleBarToTheExportedImage() throws {
             "with a title bar strip above the capture, got \(bar)")
 }
 
+// MARK: - No Selection yet (ADR 0013)
+
+@MainActor
+@Test
+func thePanelOpensWithNoSelectionAndEnterCapturesTheWholeDisplayBeautified() throws {
+    let (view, window) = makeHostedView()
+    view.keyDown(with: key("b", 11, window, flags: .option))
+    #expect(view.isBeautifying)
+    #expect(view.subviews.contains { $0 is PostProcessingPanelView }, "The panel is up with no Selection")
+
+    let composed = try #require(selectAndConfirm(view, window))
+    #expect(composed.width > 400 && composed.height > 400,
+            "The whole 400pt display, padded, at full resolution")
+}
+
+@MainActor
+@Test
+func aClickCaptureCarriesTheConfiguredLookAndEffectsIntoTheShot() throws {
+    let (view, window) = makeHostedView()
+    view.keyDown(with: key("b", 11, window, flags: .option))
+    let panel = try #require(view.subviews.compactMap { $0 as? PostProcessingPanelView }.first)
+    panel.onStyleSelected?("slate")
+    panel.onPaddingChanged?(0.1)
+    panel.onShadowSelected?(.none)
+    panel.onCornerRadiusChanged?(0)
+    view.keyDown(with: key("e", 14, window, flags: .option))
+    var values = EffectValues.neutral
+    values.brightness = -0.3
+    try #require(effectsPanel(of: view)).onValuesChanged?(values)
+
+    var committed: CGImage?
+    view.onCommit = { committed = $0 }
+    // A click on the preview, never having previewed the real crop.
+    drag(in: view, window: window, from: CGPoint(x: 200, y: 200), to: CGPoint(x: 200, y: 200))
+
+    let composed = try #require(committed)
+    #expect(composed.width == 480 && composed.height == 480,
+            "The whole display with 10% padding on every side, composited at full resolution")
+    let corner = pixel(composed, 3, 3)
+    #expect(corner.r < 80 && corner.g < 80 && corner.b < 80, "Slate at the corner")
+    #expect(pixel(composed, 240, 240).r < 240, "and the darkened (no longer white) capture in the middle")
+}
+
+@MainActor
+@Test
+func aClickOnAWindowThroughTheScaledPreviewCapturesThatWindow() throws {
+    let (view, window) = makeHostedView()
+    let target = WindowCandidate(
+        id: 7, frame: CGRect(x: 100, y: 100, width: 200, height: 200),
+        bundleIdentifier: "com.example.app", layer: 0, isOnScreen: true
+    )
+    var asked: [CGPoint] = []
+    view.onSnapHover = { point in
+        asked.append(point)
+        return (target, NSRect(x: 100, y: 100, width: 200, height: 200))
+    }
+    view.setSnapArmed(true)
+    view.keyDown(with: key("b", 11, window, flags: .option))
+    let panel = try #require(view.subviews.compactMap { $0 as? PostProcessingPanelView }.first)
+    panel.onPaddingChanged?(0.1)
+    panel.onShadowSelected?(.none)
+
+    var committed: CGImage?
+    view.onCommit = { committed = $0 }
+    // The preview shrinks the 480pt canvas to 352pt; the display's centre is
+    // still the centre of the capture in it, well inside the window.
+    drag(in: view, window: window, from: CGPoint(x: 200, y: 200), to: CGPoint(x: 200, y: 200))
+
+    let composed = try #require(committed)
+    #expect(composed.width == 240 && composed.height == 240, "The 200pt window, padded")
+    let mapped = try #require(asked.last)
+    #expect(abs(mapped.x - 200) < 1 && abs(mapped.y - 200) < 1,
+            "Snap was asked about the point's place in the capture, not on the backdrop")
+}
+
 // MARK: - Image effects
 
 @MainActor
