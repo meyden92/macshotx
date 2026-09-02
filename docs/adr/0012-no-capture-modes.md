@@ -1,5 +1,7 @@
 # There are no capture modes; one pipeline runs after every capture
 
+> **Amended by ADR 0014 (2026-09-02).** One pipeline after every capture still stands, and a dragged Selection is still a plain rectangle with no provenance. What reopened is narrower: a **snap click now captures immediately**, so the window it captured is known at the moment of commit and there is no editable rectangle for provenance to silently fall off — which was the objection below. Provenance is therefore restored for that one route, bringing back the window companion image and honest `%app`/`%window` tokens for snap-click captures. Tracked separately from ADR 0013/0014; it revives a deleted compositor path and is not part of the annotate-first change itself.
+
 Once every route seeds a Selection rather than committing one (ADR 0011), a Selection filled to the display is indistinguishable from a drag that reached the screen edges, and a Selection snapped to a window is indistinguishable from a drag around that window. Rather than carry provenance so the distinction could survive, the distinction is dropped. `CaptureMode` is gone, the per-mode `PipelineOverride` for Region, Window and Fullscreen is gone, and one pipeline runs after every capture.
 
 ## Considered Options

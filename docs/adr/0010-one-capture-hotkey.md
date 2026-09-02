@@ -1,5 +1,7 @@
 # One capture hotkey; what to capture is chosen inside the overlay
 
+> **Amended by ADR 0014 (2026-09-02).** The single capture hotkey stands. Two consequences below no longer do: the overlay now starts with window snap **armed**, and `F` is the fill-rect tool shortcut only — the fullscreen route is `Enter` with no Selection.
+
 macshot had three global capture hotkeys — Region, Window and Fullscreen — from a time when each one led somewhere different. Region and Window had already collapsed into the same overlay, differing only in whether window snap started armed, while Fullscreen was the one path that never presented the overlay at all. There is now a single capture hotkey, which always presents the capture overlay; what gets captured is decided inside it and nowhere else.
 
 ## Considered Options

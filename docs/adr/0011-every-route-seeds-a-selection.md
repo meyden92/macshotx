@@ -1,5 +1,7 @@
 # Every route seeds a Selection; confirming is the only way to commit
 
+> **Superseded by ADR 0014 (2026-09-02).** Confirming is no longer the only commit path: a click captures immediately, a drag still seeds and confirms. The reasoning below is why every route could be annotated in the first place, which ADR 0013 achieves by a different means — the tools are live before any route is taken.
+
 The capture overlay used to have four commit routes, three of which fired immediately: `F` captured the display, a click on an idle overlay captured its display, and a snap click captured the window under the cursor. Only a dragged Selection waited for confirmation. Now all three seed the Selection instead — `F` fills it to the whole display exactly as a drag across the display would, a snap click sets it to the clicked window — and the tools come up in every case. Confirming a Selection is the single commit path.
 
 The instant routes were fast, but they meant two of the three ways to capture could never be annotated, beautified or adjusted in the overlay: the machinery was all there and reachable only from the detached editor after the fact. The gate was the `isIdle` check in front of each instant commit, not the bake path, which already handled annotations.
