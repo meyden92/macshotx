@@ -78,11 +78,14 @@ enum SelectGesture {
             if !f.shiftHeld, f.insideSelectedSet { return .manipulateSelected }
             if f.hitsAnnotation { return f.shiftHeld ? .toggleMembership : .grabAnnotation }
         }
-        if f.tool == .select, f.hasSelection {
-            if let handle = f.selectionHandle { return .resizeSelection(handle) }
-            if f.insideSelection { return f.commandHeld ? .marquee : .moveSelection }
-        }
-        return f.tool == .select ? .drawSelection : .draw
+        guard f.tool == .select else { return .draw }
+        if f.hasSelection, let handle = f.selectionHandle { return .resizeSelection(handle) }
+        // The marquee lives anywhere on the canvas, Selection or no Selection:
+        // during the annotate phase there is none, and Command is what tells
+        // it apart from moving or drawing the Selection.
+        if f.commandHeld { return .marquee }
+        if f.hasSelection, f.insideSelection { return .moveSelection }
+        return .drawSelection
     }
 
     static func click(_ f: Facts) -> ClickOutcome {

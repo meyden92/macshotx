@@ -73,9 +73,19 @@ func theSelectionResizesByItsHandlesAndMovesFromInside() {
 }
 
 @Test
-func commandDragInsideTheSelectionIsTheMarquee() {
-    let f = facts { $0.hasSelection = true; $0.insideSelection = true; $0.commandHeld = true }
-    #expect(SelectGesture.drag(f) == .marquee)
+func commandDragIsTheMarqueeAnywhereOnTheCanvas() {
+    // Inside the Selection it beats moving it...
+    let inside = facts { $0.hasSelection = true; $0.insideSelection = true; $0.commandHeld = true }
+    #expect(SelectGesture.drag(inside) == .marquee)
+    // ...outside it beats drawing a new one...
+    let outside = facts { $0.hasSelection = true; $0.commandHeld = true }
+    #expect(SelectGesture.drag(outside) == .marquee)
+    // ...and with no Selection at all it is how marks made before any
+    // Selection existed get group-selected.
+    #expect(SelectGesture.drag(facts { $0.commandHeld = true }) == .marquee)
+    // A Selection handle is an explicit affordance and keeps its grab.
+    let handle = facts { $0.hasSelection = true; $0.selectionHandle = .left; $0.commandHeld = true }
+    #expect(SelectGesture.drag(handle) == .resizeSelection(.left))
 }
 
 @Test
