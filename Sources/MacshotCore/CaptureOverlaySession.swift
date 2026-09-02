@@ -80,8 +80,8 @@ final class CaptureOverlaySession {
 
     private func run() async -> Outcome {
         guard !screens.isEmpty else { return .cancelled }
-        // %app / %window context for drag and fullscreen routes, snapshotted
-        // before activation makes macshot itself frontmost.
+        // %app / %window context for every capture, snapshotted before
+        // activation makes macshot itself frontmost.
         if let front = NSWorkspace.shared.frontmostApplication,
            front.bundleIdentifier != Bundle.main.bundleIdentifier {
             frontAppName = front.localizedName

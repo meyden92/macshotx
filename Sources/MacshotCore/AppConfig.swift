@@ -355,8 +355,8 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     var format = ImageFormat.png
     /// 1–100, applies to jpeg/heic only.
     var quality = 90
-    /// Training-wheel chrome in the capture overlay: the idle helper card and
-    /// the selecting-state hint.
+    /// Training-wheel chrome in the capture overlay: the selecting-state hint
+    /// chip attached to a live Selection.
     var showOverlayHints = true
     var watermark = WatermarkSettings()
 
