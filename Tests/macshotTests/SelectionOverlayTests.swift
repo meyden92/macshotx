@@ -21,8 +21,13 @@ private func makeSourceImage(width: Int = 200, height: Int = 200) -> CGImage {
     return ctx.makeImage()!
 }
 
+/// `overlay` hosts the capture overlay, where a drag captures on release;
+/// otherwise the post-capture editor, whose crop Selection stays adjustable
+/// — which is where the Resolution box, handles and nudge now live.
 @MainActor
-private func makeHostedView(width: Int = 200, height: Int = 200) -> (RegionPickerView, NSWindow) {
+private func makeHostedView(
+    width: Int = 200, height: Int = 200, overlay: Bool = false
+) -> (RegionPickerView, NSWindow) {
     let frame = NSRect(x: 0, y: 0, width: width, height: height)
     let window = NSWindow(
         contentRect: frame,
@@ -30,7 +35,10 @@ private func makeHostedView(width: Int = 200, height: Int = 200) -> (RegionPicke
         backing: .buffered,
         defer: false
     )
-    let view = RegionPickerView(frame: frame, image: makeSourceImage(width: width, height: height), scale: 1.0)
+    let view = RegionPickerView(
+        frame: frame, image: makeSourceImage(width: width, height: height), scale: 1.0,
+        requiresSelection: overlay
+    )
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)
@@ -82,8 +90,8 @@ private func mouseEvent(
 
 @MainActor
 @Test
-func rightClickAnchorsTracksAndLeftClickCommits() async {
-    let (view, window) = makeHostedView()
+func rightClickAnchorsTracksAndLeftClickCaptures() async {
+    let (view, window) = makeHostedView(overlay: true)
     var baked: CGImage?
     view.onCommit = { baked = $0 }
 
@@ -91,15 +99,14 @@ func rightClickAnchorsTracksAndLeftClickCommits() async {
     view.mouseMoved(with: mouseEvent(.mouseMoved, atViewPoint: CGPoint(x: 130, y: 110), in: view, window: window))
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 130, y: 110), in: view, window: window))
 
-    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
-    #expect(baked?.width == 100, "Anchored selection should commit a 100pt-wide crop")
+    #expect(baked?.width == 100, "The left click captures the anchored 100pt-wide region")
     #expect(baked?.height == 80)
 }
 
 @MainActor
 @Test
 func escCancelsOnlyTheAnchoredState() async {
-    let (view, window) = makeHostedView()
+    let (view, window) = makeHostedView(overlay: true)
     var cancelled = false
     view.onCancel = { cancelled = true }
 
@@ -116,7 +123,7 @@ func escCancelsOnlyTheAnchoredState() async {
 @MainActor
 @Test
 func secondRightClickReAnchors() async {
-    let (view, window) = makeHostedView()
+    let (view, window) = makeHostedView(overlay: true)
     var baked: CGImage?
     view.onCommit = { baked = $0 }
 
@@ -126,7 +133,6 @@ func secondRightClickReAnchors() async {
     view.mouseMoved(with: mouseEvent(.mouseMoved, atViewPoint: CGPoint(x: 150, y: 150), in: view, window: window))
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 150, y: 150), in: view, window: window))
 
-    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
     #expect(baked?.width == 50, "Re-anchoring should pin the corner at the new point")
     #expect(baked?.height == 50)
 }
@@ -154,18 +160,16 @@ func rightClickWithExistingSelectionDoesNothing() async {
 
 @MainActor
 @Test
-func toolStripIsLiveFromTheFirstFrameAndFollowsTheSelectionOnceThereIsOne() async {
-    let (view, window) = makeHostedView(width: 900, height: 600)
+func toolStripIsLiveFromTheFirstFrameAndFollowsTheSelectionWhileItIsDragged() async {
+    let (view, window) = makeHostedView(width: 900, height: 600, overlay: true)
     let toolbar = view.subviews.compactMap { $0 as? RegionToolbarView }.first
     #expect(toolbar?.isHidden == false, "The strip is there before any Selection exists")
     #expect(toolbar?.frame.maxY == 592, "and sits 8pt above the bottom edge")
 
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
     view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
+    #expect(toolbar?.frame.minY == 208, "While the Selection is live the strip sits 8pt below it")
     view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
-
-    #expect(toolbar?.frame.minY == 208, "Once a Selection exists the strip sits 8pt below it")
-    _ = window
 }
 
 @MainActor
@@ -242,7 +246,8 @@ func hintStaysSuppressedByTheSetting() async {
     let frame = NSRect(x: 0, y: 0, width: 900, height: 600)
     let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
     let view = RegionPickerView(
-        frame: frame, image: makeSourceImage(), scale: 1.0, showOverlayHints: false
+        frame: frame, image: makeSourceImage(), scale: 1.0, requiresSelection: false,
+        showOverlayHints: false
     )
     window.contentView = view
     window.makeFirstResponder(view)
@@ -431,8 +436,8 @@ func unitToggleFiresPersistedPrefs() async {
 
 @MainActor
 @Test
-func armedExactSizeGhostCommitsOnClickAndIsConsumed() async {
-    let (view, window) = makeHostedView(width: 900, height: 600)
+func armedExactSizeGhostCapturesOnClickAndIsConsumed() async {
+    let (view, window) = makeHostedView(width: 900, height: 600, overlay: true)
     var baked: CGImage?
     view.onCommit = { baked = $0 }
 
@@ -449,14 +454,12 @@ func armedExactSizeGhostCommitsOnClickAndIsConsumed() async {
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 400, y: 300), in: view, window: window))
     view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 400, y: 300), in: view, window: window))
 
-    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
-    #expect(baked?.width == 640, "The armed frame commits at exactly its size")
+    #expect(baked?.width == 640, "The click captures the armed frame at exactly its size")
     #expect(baked?.height == 480)
 
     // The armed size was consumed: a fresh drag is an ordinary rubber band.
     baked = nil
     drawSelection(view, window, from: CGPoint(x: 850, y: 30), to: CGPoint(x: 880, y: 55))
-    view.keyDown(with: keyEvent("\r", keyCode: 36, window: window))
     #expect(baked?.width == 30, "The next capture gesture is not frozen at the armed size")
     #expect(baked?.height == 25)
 }

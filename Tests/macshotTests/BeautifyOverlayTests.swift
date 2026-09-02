@@ -5,8 +5,13 @@ import Testing
 // Beautify through the overlay's commit callback: the seam that proves preview
 // and bake agree, since both go through the compositor.
 
+/// Editor mode by default: a crop Selection that stays put is what the
+/// Selection-sized assertions need. The capture overlay, where a drag
+/// captures on release, is asked for explicitly.
 @MainActor
-private func makeHostedView(fill: NSColor = .white) -> (RegionPickerView, NSWindow) {
+private func makeHostedView(
+    fill: NSColor = .white, overlay: Bool = false
+) -> (RegionPickerView, NSWindow) {
     let ctx = CGContext(
         data: nil, width: 400, height: 400, bitsPerComponent: 8, bytesPerRow: 1600,
         space: CGColorSpaceCreateDeviceRGB(),
@@ -18,7 +23,9 @@ private func makeHostedView(fill: NSColor = .white) -> (RegionPickerView, NSWind
     let window = NSWindow(
         contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false
     )
-    let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1.0)
+    let view = RegionPickerView(
+        frame: frame, image: ctx.makeImage()!, scale: 1.0, requiresSelection: overlay
+    )
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)
@@ -211,7 +218,7 @@ func theWindowFrameToggleAddsATitleBarToTheExportedImage() throws {
 @MainActor
 @Test
 func thePanelOpensWithNoSelectionAndEnterCapturesTheWholeDisplayBeautified() throws {
-    let (view, window) = makeHostedView()
+    let (view, window) = makeHostedView(overlay: true)
     view.keyDown(with: key("b", 11, window, flags: .option))
     #expect(view.isBeautifying)
     #expect(view.subviews.contains { $0 is PostProcessingPanelView }, "The panel is up with no Selection")
@@ -224,7 +231,7 @@ func thePanelOpensWithNoSelectionAndEnterCapturesTheWholeDisplayBeautified() thr
 @MainActor
 @Test
 func aClickCaptureCarriesTheConfiguredLookAndEffectsIntoTheShot() throws {
-    let (view, window) = makeHostedView()
+    let (view, window) = makeHostedView(overlay: true)
     view.keyDown(with: key("b", 11, window, flags: .option))
     let panel = try #require(view.subviews.compactMap { $0 as? PostProcessingPanelView }.first)
     panel.onStyleSelected?("slate")
@@ -252,7 +259,7 @@ func aClickCaptureCarriesTheConfiguredLookAndEffectsIntoTheShot() throws {
 @MainActor
 @Test
 func aClickOnAWindowThroughTheScaledPreviewCapturesThatWindow() throws {
-    let (view, window) = makeHostedView()
+    let (view, window) = makeHostedView(overlay: true)
     let target = WindowCandidate(
         id: 7, frame: CGRect(x: 100, y: 100, width: 200, height: 200),
         bundleIdentifier: "com.example.app", layer: 0, isOnScreen: true

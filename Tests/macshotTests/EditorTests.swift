@@ -20,7 +20,9 @@ private func makeImage(width: Int = 200, height: Int = 200) -> CGImage {
 
 @MainActor
 private func makeEditorView(
-    requiresSelection: Bool = true,
+    // The post-capture editor by default: its crop Selection stays adjustable,
+    // which is what the move/resize assertions below are about.
+    requiresSelection: Bool = false,
     styles: EditorStyles = EditorStyles(),
     onStylesChanged: ((EditorStyles) -> Void)? = nil
 ) -> (RegionPickerView, NSWindow) {

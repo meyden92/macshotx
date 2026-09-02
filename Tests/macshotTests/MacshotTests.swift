@@ -125,7 +125,9 @@ private func makeHostedView(width: Int = 200, height: Int = 200) -> (RegionPicke
         defer: false
     )
     let source = makeSourceImage(width: width, height: height)
-    let view = RegionPickerView(frame: frame, image: source, scale: 1.0)
+    // Editor mode: these test annotations and the bake, which both surfaces
+    // share, against a crop Selection that stays put.
+    let view = RegionPickerView(frame: frame, image: source, scale: 1.0, requiresSelection: false)
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)

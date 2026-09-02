@@ -82,7 +82,7 @@ private func drag(
 
 @MainActor
 @Test
-func dragCommitRoutesThroughTheSessionInsteadOfBakingLocally() {
+func aDragCapturesOnReleaseThroughTheSessionInsteadOfBakingLocally() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
     var bakedLocally = false
@@ -90,9 +90,9 @@ func dragCommitRoutesThroughTheSessionInsteadOfBakingLocally() {
     view.onCommit = { _ in bakedLocally = true }
 
     drag(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 110, y: 60), view: view, window: window)
-    view.keyDown(with: key("\r", 36, window))
 
-    #expect(requested == NSRect(x: 10, y: 10, width: 100, height: 50))
+    #expect(requested == NSRect(x: 10, y: 10, width: 100, height: 50),
+            "Releasing the drag is the capture; nothing waits for Return")
     #expect(!bakedLocally)
 }
 
@@ -106,9 +106,8 @@ func selectionSurvivesUntilTheImageArrivesAndThenBakes() {
     #expect(!view.hasFrozenImage)
     #expect(view.bakedImage() == nil)
 
-    // Selection drawn before any pixels exist.
+    // A region dragged before any pixels exist.
     drag(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 100), view: view, window: window)
-    view.keyDown(with: key("\r", 36, window))
     let rect = requested
     #expect(rect == NSRect(x: 0, y: 0, width: 100, height: 100))
 
@@ -229,27 +228,6 @@ func aClickThatHitsAnAnnotationSelectsItAndTheNextClickClearsTheSetBeforeAnyCapt
 
 @MainActor
 @Test
-func aClickInsideTheSelectionWithASelectedSetClearsTheSetAndCapturesNothing() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var requested: NSRect?
-    view.onCommitRequested = { requested = $0 }
-
-    drag(from: CGPoint(x: 20, y: 20), to: CGPoint(x: 150, y: 150), view: view, window: window)
-    view.keyDown(with: key("r", 15, window))
-    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 60, y: 60), view: view, window: window)
-    view.keyDown(with: key("s", 1, window))
-    click(at: CGPoint(x: 45, y: 45), view: view, window: window)  // select the rectangle
-
-    // Inside the Selection but on empty canvas: the set is dropped, so Delete
-    // has nothing to remove, and nothing captured.
-    click(at: CGPoint(x: 120, y: 120), view: view, window: window)
-    view.keyDown(with: key("\u{7f}", 51, window))
-    #expect(view.annotations.count == 1, "The set was cleared before Delete")
-    #expect(requested == nil)
-}
-
-@MainActor
-@Test
 func aClickWithADrawingToolInHandNeverCaptures() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
@@ -297,21 +275,6 @@ func aClickWhileTypingCommitsTheTextInsteadOfCapturing() throws {
 
 @MainActor
 @Test
-func aClickOutsideTheSelectionDismissesItAndEnterThenCapturesTheDisplay() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var requested: NSRect?
-    view.onCommitRequested = { requested = $0 }
-
-    drag(from: CGPoint(x: 20, y: 20), to: CGPoint(x: 90, y: 90), view: view, window: window)
-    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
-    #expect(requested == nil, "Dismissing the Selection never captures")
-
-    view.keyDown(with: key("\r", 36, window))
-    #expect(requested == view.bounds, "With no Selection, Enter captures the display")
-}
-
-@MainActor
-@Test
 func enterWithNoSelectionAsksTheSessionForTheDisplayUnderTheCursor() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
@@ -346,11 +309,9 @@ func annotationsOutsideTheCapturedRectAreClippedAway() throws {
     drag(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 30), view: view, window: window)
     drag(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 120, y: 120), view: view, window: window)
     view.keyDown(with: key("s", 1, window))
-    drag(from: CGPoint(x: 80, y: 80), to: CGPoint(x: 140, y: 140), view: view, window: window)
-
     var baked: CGImage?
     view.onCommit = { baked = $0 }
-    view.keyDown(with: key("\r", 36, window))
+    drag(from: CGPoint(x: 80, y: 80), to: CGPoint(x: 140, y: 140), view: view, window: window)
     let image = try #require(baked)
     #expect(image.width == 60 && image.height == 60)
     let bytes = CFDataGetBytePtr(image.dataProvider!.data!)!

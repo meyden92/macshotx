@@ -13,8 +13,8 @@ product specification.
   display with the annotation tools already live: arrows, shapes, text,
   callouts, step markers, blur/pixelate/solid redactions, anywhere on the
   screen. Then click a window (highlighted as you hover; Tab turns snap off)
-  or empty space to capture it immediately, drag an adjustable selection and
-  press Return, or press Return with nothing selected for the whole display.
+  or empty space, drag a region, or press Return for the whole display — every
+  one of them captures immediately.
   Whatever falls outside the crop is clipped away. Undo/redo, per-annotation
   move/resize, per-tool styles that persist across sessions.
 - **Post-capture editor** with the same toolset plus rectangular crop.

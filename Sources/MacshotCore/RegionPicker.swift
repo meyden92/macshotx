@@ -1663,16 +1663,12 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Anchored mode: a left-click commits the Selection where it stands.
+        // Anchored mode: a left-click settles the Selection where it stands.
         if case .anchored? = selectionGesture?.kind {
-            if let rect = liveSelectionRect {
-                selection = rect
-            }
+            let rect = liveSelectionRect
             selectionGesture = nil
             liveSelectionRect = nil
-            onSelectionActivity?(selection != nil)
-            layoutChrome()
-            needsDisplay = true
+            settleSelection(rect)
             return
         }
 
@@ -1876,25 +1872,21 @@ final class RegionPickerView: NSView {
         if let gesture = selectionGesture {
             // A gesture that never produced a rectangle (a bare click) leaves
             // the committed Selection as it was.
-            let wasBareClick = liveSelectionRect == nil
-            if let rect = liveSelectionRect {
-                selection = rect
-                // An armed exact size is consumed by the Selection it creates.
-                if case .placingFixedSize = gesture.kind { armedExactSize = nil }
-            }
+            let rect = liveSelectionRect
+            // An armed exact size is consumed by the Selection it creates.
+            if rect != nil, case .placingFixedSize = gesture.kind { armedExactSize = nil }
             selectionGesture = nil
             liveSelectionRect = nil
-            invalidateComposition()
-            onSelectionActivity?(selection != nil)
-            layoutChrome()
-            needsDisplay = true
             // The closed hand a move drag set has nothing left to hold.
             updateCursor(
                 at: convert(event.locationInWindow, from: nil),
                 modifiers: event.modifierFlags
             )
-            if wasBareClick, let facts = pendingClick {
+            if let facts = pendingClick, rect == nil {
+                settleSelection(nil)
                 resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+            } else {
+                settleSelection(rect)
             }
             pendingClick = nil
             return
@@ -2774,6 +2766,27 @@ final class RegionPickerView: NSView {
         } else {
             commit(bounds)
         }
+    }
+
+    /// A Selection gesture ended with `rect` (nil for a bare click, which
+    /// leaves any committed Selection as it was). In the capture overlay a
+    /// finished drag is the capture: it commits on release, like a click on a
+    /// window (ADR 0014 as amended). Only the post-capture editor keeps an
+    /// adjustable crop Selection to confirm.
+    private func settleSelection(_ rect: NSRect?) {
+        if let rect, requiresSelection {
+            invalidateComposition()
+            onSelectionActivity?(false)
+            layoutChrome()
+            needsDisplay = true
+            commit(rect)
+            return
+        }
+        if let rect { selection = rect }
+        invalidateComposition()
+        onSelectionActivity?(selection != nil)
+        layoutChrome()
+        needsDisplay = true
     }
 
     /// The one commit path, for a confirmed Selection and a click capture

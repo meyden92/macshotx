@@ -18,7 +18,7 @@ The one order the capture overlay runs in: annotation tools are live from the fi
 _Avoid_: Fast capture, fast-capture mode, selection-last mode
 
 **Selection**:
-The rectangle that crops the capture down to what is wanted, made last. Confined to a single display. A drag makes it adjustable and confirming captures it; a click captures a window or the display outright, so no Selection ever exists in those cases. Whatever falls outside it — annotations included — is clipped away.
+The rectangle that crops the capture down to what is wanted, made last. Confined to a single display. In the capture overlay a drag captures it on release, and a click captures a window or the display outright, so it is only ever live for the length of a drag there; the post-capture editor keeps an adjustable crop Selection that confirming exports. Whatever falls outside it — annotations included — is clipped away.
 _Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
