@@ -281,3 +281,34 @@ func coveredWindowDoesNotShadowWhatIsBehindTheCoveringWindow() {
     )
     #expect(hit?.id == 3)
 }
+
+// MARK: - Snap hit-testing per display (#52)
+
+@Test
+func hoverOnANonPrimaryDisplayMapsThroughThatDisplaysQuartzOrigin() {
+    // External display to the right of a 1512-wide primary.
+    let display = CGRect(x: 1512, y: 0, width: 2560, height: 1440)
+    let window = candidate(id: 7, 2000, 100, 400, 300)
+    let hit = WindowSnapResolver.target(
+        in: [window], displayFrame: display, localPoint: CGPoint(x: 600, y: 200)
+    )
+    #expect(hit?.candidate.id == 7)
+    // The highlight rect comes back in the display's own view space.
+    #expect(hit?.rect == CGRect(x: 488, y: 100, width: 400, height: 300))
+    // The same local point on a display that has no window there: nothing.
+    let miss = WindowSnapResolver.target(
+        in: [window], displayFrame: display, localPoint: CGPoint(x: 100, y: 100)
+    )
+    #expect(miss == nil)
+}
+
+@Test
+func hoverOnADisplayLeftOfAndAboveThePrimaryUsesNegativeOrigins() {
+    let display = CGRect(x: -2560, y: -458, width: 2560, height: 1440)
+    let window = candidate(id: 3, -2000, -300, 500, 500)
+    let hit = WindowSnapResolver.target(
+        in: [window], displayFrame: display, localPoint: CGPoint(x: 700, y: 300)
+    )
+    #expect(hit?.candidate.id == 3)
+    #expect(hit?.rect == CGRect(x: 560, y: 158, width: 500, height: 500))
+}

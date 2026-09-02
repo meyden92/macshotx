@@ -35,7 +35,11 @@ final class CaptureOverlaySession {
     private static weak var active: CaptureOverlaySession?
 
     static func run() async -> Outcome {
-        guard active == nil else { return .cancelled }
+        guard active == nil else {
+            Log.info("Capture requested while a session is already up; ignored")
+            return .cancelled
+        }
+        Log.info("Capture session starting on \(NSScreen.screens.count) screen(s)")
         let session = CaptureOverlaySession()
         active = session
         defer { if active === session { active = nil } }
@@ -56,7 +60,6 @@ final class CaptureOverlaySession {
 
     private var model: CaptureSessionModel
     private let screens: [NSScreen]
-    private let primaryHeight: CGFloat
     private var overlays: [Overlay] = []
     /// Snap candidates, already filtered and z-order-deduplicated — computed
     /// once per capture, scanned per hover.
@@ -70,7 +73,6 @@ final class CaptureOverlaySession {
     private init() {
         let screens = NSScreen.screens
         self.screens = screens
-        self.primaryHeight = screens.first?.frame.height ?? 0
         // The overlay always starts with snap off: nothing about the capture is
         // decided before it is on screen (ADR 0010).
         self.model = CaptureSessionModel(displayCount: screens.count, snapArmed: false)
@@ -114,9 +116,7 @@ final class CaptureOverlaySession {
         var matchedAny = false
         for (index, overlay) in overlays.enumerated() {
             guard
-                let screenID = overlay.screen.deviceDescription[
-                    NSDeviceDescriptionKey("NSScreenNumber")
-                ] as? CGDirectDisplayID,
+                let screenID = Self.displayID(of: overlay.screen),
                 let display = content.displays.first(where: { $0.displayID == screenID })
             else {
                 // A screen ScreenCaptureKit cannot enumerate (Sidecar,
@@ -167,6 +167,7 @@ final class CaptureOverlaySession {
             },
             ownBundleID: ourBundle
         )
+        Log.info("Window snap: \(snapCandidates.count) of \(content.windows.count) windows eligible")
         // The pointer may not move again before the click; highlight now.
         for overlay in overlays { overlay.view.refreshSnapHighlightNow() }
         resolveFrontWindowTitle(from: content, ourBundle: ourBundle)
@@ -175,6 +176,8 @@ final class CaptureOverlaySession {
     private func imageArrived(on index: Int, image: CGImage) {
         guard !hasResumed, overlays.indices.contains(index) else { return }
         let view = overlays[index].view
+        // The frozen image sizes the pixel scale (#51); bounds must match the display.
+        Log.info("Overlay \(index): frozen image \(image.width)x\(image.height) for bounds \(view.bounds.size)")
         view.installFrozenImage(image)
         // Boundary-snap edge index, built off the main actor once the frozen
         // image exists; early gestures simply don't snap.
@@ -237,13 +240,16 @@ final class CaptureOverlaySession {
             )
             wire(view, at: index)
 
+            // No `screen:` argument: with one, AppKit reads `contentRect`
+            // relative to that screen, which lands every non-primary overlay
+            // off its display (#50). `setFrame` is unambiguously global.
             let window = KeyableOverlayWindow(
                 contentRect: screen.frame,
                 styleMask: .borderless,
                 backing: .buffered,
-                defer: false,
-                screen: screen
+                defer: false
             )
+            window.setFrame(screen.frame, display: false)
             window.isOpaque = false
             window.backgroundColor = .clear
             window.hasShadow = false
@@ -255,11 +261,16 @@ final class CaptureOverlaySession {
             ]
             window.contentView = view
 
+            let quartz = quartzFrame(of: screen)
+            Log.info(
+                "Overlay \(index): screen \(screen.frame) window \(window.frame) "
+                    + "quartz \(quartz) scale \(screen.backingScaleFactor)"
+            )
             overlays.append(Overlay(
                 screen: screen,
                 window: window,
                 view: view,
-                quartzFrame: quartzFrame(of: screen)
+                quartzFrame: quartz
             ))
             window.orderFrontRegardless()
             window.makeFirstResponder(view)
@@ -288,8 +299,8 @@ final class CaptureOverlaySession {
         view.onSnapClick = { [weak self] candidate in
             self?.seedWindow(candidate, on: index)
         }
-        view.onSnapHover = { [weak self] cocoaPoint in
-            self?.snapTarget(at: cocoaPoint, for: index)
+        view.onSnapHover = { [weak self] localPoint in
+            self?.snapTarget(at: localPoint, for: index)
         }
         view.onPointerMoved = { [weak self] in self?.pointerMoved(over: index) }
         view.onToolChosen = { [weak self] tool in self?.toolChosen(tool, from: index) }
@@ -302,10 +313,18 @@ final class CaptureOverlaySession {
         }
     }
 
-    /// Cocoa screen frame → global Quartz frame (top-left origin at the
-    /// primary display's top-left corner).
+    private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    /// The display's global Quartz frame (top-left origin at the primary
+    /// display's top-left corner), straight from CoreGraphics — the same
+    /// space `SCWindow.frame` is in, with no Cocoa flip to get wrong.
     private func quartzFrame(of screen: NSScreen) -> CGRect {
-        CGRect(
+        if let id = Self.displayID(of: screen) { return CGDisplayBounds(id) }
+        // No display id (virtual screens): flip against the zero screen.
+        let primaryHeight = screens.first?.frame.height ?? 0
+        return CGRect(
             x: screen.frame.minX,
             y: primaryHeight - screen.frame.maxY,
             width: screen.frame.width,
@@ -405,17 +424,17 @@ final class CaptureOverlaySession {
         ))
     }
 
+    /// `localPoint` is in the overlay's own view space; the display's Quartz
+    /// frame carries it to the global window list (#52).
     private func snapTarget(
-        at cocoaPoint: NSPoint, for index: Int
+        at localPoint: NSPoint, for index: Int
     ) -> (candidate: WindowCandidate, rect: NSRect)? {
         guard overlays.indices.contains(index) else { return nil }
-        let quartzPoint = CGPoint(x: cocoaPoint.x, y: primaryHeight - cocoaPoint.y)
-        guard let candidate = snapCandidates.first(where: {
-            $0.frame.contains(quartzPoint)
-        }) else { return nil }
-        let display = overlays[index].quartzFrame
-        let local = candidate.frame.offsetBy(dx: -display.minX, dy: -display.minY)
-        return (candidate, local)
+        return WindowSnapResolver.target(
+            in: snapCandidates,
+            displayFrame: overlays[index].quartzFrame,
+            localPoint: localPoint
+        )
     }
 
     // MARK: - Commit routes
@@ -424,7 +443,9 @@ final class CaptureOverlaySession {
         switch model.requestCommit(on: index, rect: rect) {
         case .perform:
             performCommit(on: index, rect: rect)
-        case .held, .ignored:
+        case .held:
+            Log.info("Commit on display \(index) held until its frozen image lands")
+        case .ignored:
             break
         }
     }
@@ -460,6 +481,14 @@ final class CaptureOverlaySession {
     private func finish(_ outcome: Outcome) {
         guard !hasResumed else { return }
         hasResumed = true
+        switch outcome {
+        case .committed(let commit):
+            Log.info("Capture session committed \(commit.image.width)x\(commit.image.height)")
+        case .cancelled:
+            Log.info("Capture session cancelled")
+        case .failed(let error):
+            Log.error("Capture session failed: \(error)")
+        }
         NSCursor.arrow.set()
         for overlay in overlays {
             overlay.window.orderOut(nil)
