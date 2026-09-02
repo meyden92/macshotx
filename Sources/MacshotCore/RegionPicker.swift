@@ -10,28 +10,23 @@ final class RegionPickerView: NSView {
     // All nil in the post-capture editor, where every overlay behaviour they
     // gate stays inert.
 
-    /// A drag-selection commit was chosen; carries the selection rectangle.
-    /// When set, `confirm()` routes here instead of baking locally, so the
-    /// session can hold the commit while the frozen image is in flight.
+    /// A capture was chosen — a confirmed Selection, a clicked window or the
+    /// whole display — and carries its rectangle in view points. When set,
+    /// commits route here instead of baking locally, so the session can hold
+    /// the commit while the frozen image is in flight.
     var onCommitRequested: ((NSRect) -> Void)?
+    /// `Enter` with no Selection: the session captures the display under the
+    /// cursor, or confirms the Selection another display holds.
+    var onDisplayCaptureRequested: (() -> Void)?
     /// Selection activity: true when a gesture claims the selection, false
     /// when a gesture ends without one.
     var onSelectionActivity: ((Bool) -> Void)?
     var onTabPressed: (() -> Void)?
-    var onFullscreenKey: (() -> Void)?
-    /// A click with no drag while idle and snap is off; the session seeds the
-    /// Selection to this display.
-    var onIdleClick: (() -> Void)?
-    /// A click with no drag on a snap-highlighted window; the session seeds the
-    /// Selection to that window.
-    var onSnapClick: ((WindowCandidate) -> Void)?
     /// Resolve the snap target for a pointer position in this view's own
     /// space; returns the candidate plus its rect in that same space.
     var onSnapHover: ((NSPoint) -> (candidate: WindowCandidate, rect: NSRect)?)?
     /// The pointer moved over this overlay — the session keys its window.
     var onPointerMoved: (() -> Void)?
-    /// Content for the idle helper card; nil hides it.
-    var helperCardContent: (() -> HelperCard.Content?)?
     /// The user chose a tool here — the session mirrors it everywhere else.
     var onToolChosen: ((Tool) -> Void)?
 
@@ -181,7 +176,7 @@ final class RegionPickerView: NSView {
     private var colorPickerTarget: ColorTarget = .stroke
     /// App-level saved palette (not per-tool), persisted with the editor styles.
     private var customPalette: [NSColor] = []
-    /// Mirrors the config setting that also suppresses the idle helper card.
+    /// The "Show overlay hints" setting; governs the selecting-hint chip.
     private let showOverlayHints: Bool
     private let onSelectionPrefsChanged: ((SelectionPrefs) -> Void)?
     /// Active aspect lock (width/height); nil is freeform. Persisted.
@@ -194,7 +189,6 @@ final class RegionPickerView: NSView {
     /// Window snap, session-owned and mirrored here for hit-testing/drawing.
     private(set) var snapArmed = false
     private var snapHighlight: (candidate: WindowCandidate, rect: NSRect)?
-    private(set) var helperCard: OverlayHelperCardView?
 
     init(
         frame: NSRect,
@@ -241,14 +235,6 @@ final class RegionPickerView: NSView {
 
     // MARK: Capture-overlay session surface
 
-    /// No selection, no annotations, no draft, no active text edit — the
-    /// state in which the helper card shows and `F` means fullscreen.
-    var isIdle: Bool {
-        selection == nil && liveSelectionRect == nil && selectionGesture == nil
-            && document.placed.isEmpty && draftAnnotation == nil
-            && editingTextField == nil && selectedIDs.isEmpty
-    }
-
     /// The session avoids stealing key from an overlay mid-text-edit.
     var isEditingText: Bool { editingTextField != nil }
 
@@ -273,24 +259,6 @@ final class RegionPickerView: NSView {
     /// frozen image has been installed.
     func bakedImage(croppingTo rect: NSRect? = nil) -> CGImage? {
         bake(rect: rect ?? bounds)
-    }
-
-    /// Seeds the Selection from a route that is not a drag: `F`, a bare click
-    /// on an idle overlay, or a click on a snapped window. What comes out is an
-    /// ordinary Selection — movable, resizable, annotatable — and confirming it
-    /// is still the only thing that captures (ADR 0011).
-    func seedSelection(_ rect: NSRect) {
-        let clamped = rect.intersection(bounds)
-        guard clamped.width >= 1, clamped.height >= 1 else { return }
-        selectionGesture = nil
-        liveSelectionRect = nil
-        selection = clamped
-        // A Selection exists now, so the highlight has nothing left to offer.
-        snapHighlight = nil
-        invalidateComposition()
-        onSelectionActivity?(true)
-        layoutChrome()
-        needsDisplay = true
     }
 
     /// Cross-display clearing: another display took the selection.
@@ -372,7 +340,6 @@ final class RegionPickerView: NSView {
                 at: point, in: existing, handleSize: handleSize
             )
         }
-        facts.isIdle = isIdle
         return facts
     }
 
@@ -388,42 +355,17 @@ final class RegionPickerView: NSView {
                 selectedIDs = [id]
                 refreshToolOptions()
             }
-        case .seedWindow:
-            // Snap clicks only exist before a Selection.
-            guard selection == nil, let (candidate, _) = onSnapHover?(point) else { return }
-            onSnapClick?(candidate)
-        case .seedDisplay:
-            onIdleClick?()
-        case .nothing:
+        case .clearSelectedSet, .clearSelection, .nothing:
+            // The drag ladder already dropped the set or the Selection at
+            // mouse-down; what matters here is that nothing captures.
             break
-        }
-    }
-
-    // MARK: Idle helper card
-
-    override func viewWillDraw() {
-        refreshHelperCard()
-        super.viewWillDraw()
-    }
-
-    private func refreshHelperCard() {
-        guard let content = isIdle ? helperCardContent?() : nil else {
-            helperCard?.removeFromSuperview()
-            helperCard = nil
-            return
-        }
-        if helperCard?.content != content {
-            helperCard?.removeFromSuperview()
-            let card = OverlayHelperCardView(content: content)
-            addSubview(card)
-            helperCard = card
-        }
-        if let card = helperCard {
-            let centered = NSPoint(
-                x: (bounds.width - card.frame.width) / 2,
-                y: (bounds.height - card.frame.height) / 2
-            )
-            if card.frame.origin != centered { card.setFrameOrigin(centered) }
+        case .captureWindow:
+            // The window's rect is already in view space; only the part on
+            // this display can be baked.
+            guard let (_, rect) = onSnapHover?(point) else { return }
+            commit(rect.intersection(bounds))
+        case .captureDisplay:
+            commit(bounds)
         }
     }
 
@@ -2506,13 +2448,6 @@ final class RegionPickerView: NSView {
         // nothing; the toolbar already says why.
         if isBeautifying { return }
         if !cmd, let key = event.charactersIgnoringModifiers?.lowercased() {
-            // `F` is fullscreen-from-the-overlay when the overlay under the
-            // cursor is idle; the session decides and otherwise reasserts the
-            // fill-rect tool, so the shortcut keeps its meaning everywhere else.
-            if key == "f", let onFullscreenKey {
-                onFullscreenKey()
-                return
-            }
             let tool = Tool.allCases.first { !$0.keyEquivalent.isEmpty && $0.keyEquivalent == key }
             if let tool {
                 setTool(tool)
@@ -2712,16 +2647,26 @@ final class RegionPickerView: NSView {
 
     // MARK: Confirm + bake
 
-    private func confirm() {
+    /// Return, Done, or a double-click inside the Selection. A Selection is
+    /// captured as it stands; with none, the whole image is — in the capture
+    /// overlay that is the display under the cursor, which the session
+    /// resolves because another display may hold the Selection (ADR 0014).
+    func confirm() {
         commitTextEditing()
-        var rect = selection ?? liveSelectionRect
-        if rect == nil && !requiresSelection {
-            // Post-capture editor: no crop selection means export everything.
-            rect = bounds
+        if let rect = selection ?? liveSelectionRect {
+            commit(rect)
+        } else if let onDisplayCaptureRequested {
+            onDisplayCaptureRequested()
+        } else {
+            commit(bounds)
         }
-        guard let rect, rect.width >= 1, rect.height >= 1 else { return }
-        // Capture overlay: the session bakes (and can hold the commit until
-        // the frozen image lands).
+    }
+
+    /// The one commit path, for a confirmed Selection and a click capture
+    /// alike: the session bakes (and can hold the commit until the frozen
+    /// image lands), or the post-capture editor bakes locally.
+    private func commit(_ rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
         if let onCommitRequested {
             onCommitRequested(rect)
             return
@@ -3176,7 +3121,7 @@ final class RegionToolbarView: NSView {
         done.onClick = { [weak self] in self?.onDone?() }
         done.onHover = { [weak self, weak done] hovering in
             guard let self, let done else { return }
-            self.onButtonHover?(hovering ? "Capture selected region (Return)" : nil, done.frame)
+            self.onButtonHover?(hovering ? "Capture (Return)" : nil, done.frame)
         }
         done.frame = NSRect(x: x, y: buttonRowY, width: 64, height: 36)
         addSubview(done)
@@ -3376,47 +3321,6 @@ final class OverlayTooltipView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-}
-
-/// Centred idle helper card: one instruction line plus the window-snap status
-/// line. Not interactive — hit testing passes through, so clicking or
-/// dragging over it behaves as if it were not there. Phase 7 restyles it.
-final class OverlayHelperCardView: NSView {
-    let content: HelperCard.Content
-
-    init(content: HelperCard.Content) {
-        self.content = content
-        let instruction = NSTextField(labelWithString: content.instruction)
-        instruction.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        instruction.textColor = .labelColor
-        instruction.alignment = .center
-        let status = NSTextField(labelWithString: content.status)
-        status.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        status.textColor = .secondaryLabelColor
-        status.alignment = .center
-
-        let instructionSize = instruction.intrinsicContentSize
-        let statusSize = status.intrinsicContentSize
-        let width = max(instructionSize.width, statusSize.width) + 32
-        let height = instructionSize.height + statusSize.height + 6 + 24
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        wantsLayer = true
-        GlassChrome.installBackdrop(in: self, radius: .large)
-
-        instruction.frame = NSRect(
-            x: 16, y: 12 + statusSize.height + 6,
-            width: width - 32, height: instructionSize.height
-        )
-        status.frame = NSRect(
-            x: 16, y: 12, width: width - 32, height: statusSize.height
-        )
-        addSubview(instruction)
-        addSubview(status)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class ToolButton: NSView {

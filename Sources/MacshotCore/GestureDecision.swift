@@ -30,9 +30,6 @@ enum SelectGesture {
         var hasSelection = false
         var insideSelection = false
         var selectionHandle: ResizeHandle?
-        /// No Selection, no annotations, no draft, no text edit — the state in
-        /// which a bare click seeds the display.
-        var isIdle = false
     }
 
     /// What a mouse-down primes. Only `drawSelection` and `draw` can turn out
@@ -53,13 +50,20 @@ enum SelectGesture {
         case draw
     }
 
-    /// What a click that never dragged means.
+    /// What a click that never dragged means. A capture is reachable only
+    /// from a clean canvas: nothing selected, nothing being typed, no
+    /// Selection to dismiss — that click ladder is what keeps an instant
+    /// display capture survivable (ADR 0014).
     enum ClickOutcome: Equatable {
         case selectAnnotation
-        /// Seed the Selection to the window under the cursor.
-        case seedWindow
-        /// Seed the Selection to the whole display.
-        case seedDisplay
+        /// Drop the selected set or commit the open text edit; capture nothing.
+        case clearSelectedSet
+        /// A click outside the Selection dismisses it; capture nothing.
+        case clearSelection
+        /// Capture the window under the cursor, immediately.
+        case captureWindow
+        /// Capture the whole display under the cursor, immediately.
+        case captureDisplay
         case nothing
     }
 
@@ -83,8 +87,13 @@ enum SelectGesture {
 
     static func click(_ f: Facts) -> ClickOutcome {
         if f.hitsAnnotation { return .selectAnnotation }
-        if f.snapArmed { return f.windowUnderCursor ? .seedWindow : .nothing }
-        // A misclick with a drawing tool must not seed anything.
-        return f.tool == .select && f.isIdle ? .seedDisplay : .nothing
+        if f.hasSelectedSet || f.isEditingText { return .clearSelectedSet }
+        // A click with a drawing tool in hand never captures.
+        guard f.tool == .select else { return .nothing }
+        if f.hasSelection {
+            return f.insideSelection || f.selectionHandle != nil ? .nothing : .clearSelection
+        }
+        if f.snapArmed, f.windowUnderCursor { return .captureWindow }
+        return .captureDisplay
     }
 }

@@ -100,17 +100,6 @@ func editorModeBakesFullImageWithoutSelection() {
 
 @MainActor
 @Test
-func regionModeStillRequiresSelection() {
-    let (view, window) = makeEditorView(requiresSelection: true)
-    var baked: CGImage?
-    view.onCommit = { baked = $0 }
-
-    view.keyDown(with: key("\r", 36, window))
-    #expect(baked == nil, "Region overlay must not bake without a selection")
-}
-
-@MainActor
-@Test
 func editorModeSelectionCropsLikeRegionMode() {
     let (view, window) = makeEditorView(requiresSelection: false)
     var baked: CGImage?

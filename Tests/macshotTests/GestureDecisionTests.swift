@@ -85,10 +85,10 @@ func emptyCanvasDrawsANewSelection() {
     #expect(SelectGesture.drag(facts { $0.hasSelection = true }) == .drawSelection)
 }
 
-// MARK: - Click ladder
+// MARK: - Click ladder (ADR 0014)
 
 @Test
-func aClickThatHitsAnAnnotationSelectsIt() {
+func aClickThatHitsAnAnnotationSelectsItBeforeAnythingElse() {
     #expect(SelectGesture.click(facts { $0.hitsAnnotation = true; $0.snapArmed = true; $0.windowUnderCursor = true })
             == .selectAnnotation)
     #expect(SelectGesture.click(facts { $0.tool = .rectangle; $0.hitsAnnotation = true })
@@ -96,18 +96,43 @@ func aClickThatHitsAnAnnotationSelectsIt() {
 }
 
 @Test
-func withSnapArmedAClickSeedsTheWindowUnderItOrNothing() {
+func aClickOverAWindowWithASelectedSetClearsTheSetAndCapturesNothing() {
+    let f = facts { $0.hasSelectedSet = true; $0.snapArmed = true; $0.windowUnderCursor = true }
+    #expect(SelectGesture.click(f) == .clearSelectedSet)
+    // The following click, from the now-clean canvas, captures the window.
     #expect(SelectGesture.click(facts { $0.snapArmed = true; $0.windowUnderCursor = true })
-            == .seedWindow)
-    #expect(SelectGesture.click(facts { $0.snapArmed = true }) == .nothing)
-    // A drawing-tool click still snap-seeds.
-    #expect(SelectGesture.click(facts { $0.tool = .pen; $0.snapArmed = true; $0.windowUnderCursor = true })
-            == .seedWindow)
+            == .captureWindow)
 }
 
 @Test
-func withSnapOffOnlyAnIdleSelectToolClickSeedsTheDisplay() {
-    #expect(SelectGesture.click(facts { $0.isIdle = true }) == .seedDisplay)
-    #expect(SelectGesture.click(facts { $0.isIdle = false }) == .nothing)
-    #expect(SelectGesture.click(facts { $0.tool = .pen; $0.isIdle = true }) == .nothing)
+func aClickWhileATextEditIsOpenCommitsTheTextRatherThanCapturing() {
+    #expect(SelectGesture.click(facts { $0.isEditingText = true }) == .clearSelectedSet)
+}
+
+@Test
+func aClickWithADrawingToolInHandCapturesNothing() {
+    let f = facts { $0.tool = .arrow; $0.snapArmed = true; $0.windowUnderCursor = true }
+    #expect(SelectGesture.click(f) == .nothing)
+    #expect(SelectGesture.click(facts { $0.tool = .pen }) == .nothing)
+}
+
+@Test
+func aClickOutsideTheSelectionDismissesItAndInsideDoesNothing() {
+    #expect(SelectGesture.click(facts { $0.hasSelection = true }) == .clearSelection)
+    #expect(SelectGesture.click(facts { $0.hasSelection = true; $0.insideSelection = true }) == .nothing)
+    #expect(SelectGesture.click(facts { $0.hasSelection = true; $0.selectionHandle = .top }) == .nothing)
+    // Even over a window: dismissing the Selection never captures.
+    let overWindow = facts { $0.hasSelection = true; $0.snapArmed = true; $0.windowUnderCursor = true }
+    #expect(SelectGesture.click(overWindow) == .clearSelection)
+}
+
+@Test
+func fromACleanCanvasAClickCapturesTheWindowUnderItOrElseTheDisplay() {
+    #expect(SelectGesture.click(facts { $0.snapArmed = true; $0.windowUnderCursor = true })
+            == .captureWindow)
+    #expect(SelectGesture.click(facts { $0.snapArmed = true }) == .captureDisplay)
+    // Disarming snap changes what a click captures, not whether it captures.
+    #expect(SelectGesture.click(facts { $0.snapArmed = false; $0.windowUnderCursor = true })
+            == .captureDisplay)
+    #expect(SelectGesture.click(facts()) == .captureDisplay)
 }

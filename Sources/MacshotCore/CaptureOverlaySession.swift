@@ -290,23 +290,14 @@ final class CaptureOverlaySession {
             self?.selectionActivity(on: index, active: active)
         }
         view.onTabPressed = { [weak self] in self?.tabPressed() }
-        view.onFullscreenKey = { [weak self] in self?.fullscreenKeyPressed() }
-        view.onIdleClick = { [weak self] in self?.seedWholeDisplay(on: index) }
-        view.onSnapClick = { [weak self] candidate in
-            self?.seedWindow(candidate, on: index)
+        view.onDisplayCaptureRequested = { [weak self] in
+            self?.displayCaptureRequested(on: index)
         }
         view.onSnapHover = { [weak self] localPoint in
             self?.snapTarget(at: localPoint, for: index)
         }
         view.onPointerMoved = { [weak self] in self?.pointerMoved(over: index) }
         view.onToolChosen = { [weak self] tool in self?.toolChosen(tool, from: index) }
-        view.helperCardContent = { [weak self] in
-            guard let self else { return nil }
-            return HelperCard.content(
-                snapArmed: self.model.snapArmed,
-                suppressed: !ConfigStore.shared.config.capture.showOverlayHints
-            )
-        }
     }
 
     private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
@@ -398,41 +389,6 @@ final class CaptureOverlaySession {
         }
     }
 
-    /// `F`: fills the Selection to the display under the cursor while that
-    /// overlay is idle and may seed; in every other state it keeps selecting
-    /// the fill-rect tool, whose shortcut it is.
-    private func fullscreenKeyPressed() {
-        if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle,
-           model.canSeed(on: index) {
-            seedWholeDisplay(on: index)
-            return
-        }
-        for overlay in overlays { overlay.view.adoptTool(.fillRect) }
-    }
-
-    // MARK: - Seeding routes
-    //
-    // None of these capture: they hand the overlay a Selection and the user
-    // confirms it like any other (ADR 0011). All of them refuse while another
-    // display owns the Selection (`CaptureSessionModel.canSeed`); only a drag
-    // takes it over.
-
-    private func seedWholeDisplay(on index: Int) {
-        guard overlays.indices.contains(index), model.canSeed(on: index) else { return }
-        let view = overlays[index].view
-        view.seedSelection(view.bounds)
-    }
-
-    private func seedWindow(_ candidate: WindowCandidate, on index: Int) {
-        guard overlays.indices.contains(index), model.canSeed(on: index) else { return }
-        let overlay = overlays[index]
-        // The candidate's frame is global Quartz; the overlay's view space is
-        // the same orientation, offset to the display's own top-left corner.
-        overlay.view.seedSelection(candidate.frame.offsetBy(
-            dx: -overlay.quartzFrame.minX, dy: -overlay.quartzFrame.minY
-        ))
-    }
-
     /// `localPoint` is in the overlay's own view space; the display's Quartz
     /// frame carries it to the global window list (#52).
     private func snapTarget(
@@ -447,6 +403,23 @@ final class CaptureOverlaySession {
     }
 
     // MARK: - Commit routes
+    //
+    // A confirmed Selection, a clicked window and a clicked display all arrive
+    // here as a rectangle (ADR 0014). The model refuses a capture on a display
+    // that does not own the Selection, and holds one whose frozen image has
+    // not landed yet.
+
+    /// `Enter` with no Selection on this display: capture it whole — unless
+    /// another display holds the Selection, in which case that is what the
+    /// user is confirming.
+    private func displayCaptureRequested(on index: Int) {
+        guard overlays.indices.contains(index) else { return }
+        if let owner = model.selectionOwner, owner != index, overlays.indices.contains(owner) {
+            overlays[owner].view.confirm()
+            return
+        }
+        requestCommit(on: index, rect: overlays[index].view.bounds)
+    }
 
     private func requestCommit(on index: Int, rect: CGRect) {
         switch model.requestCommit(on: index, rect: rect) {

@@ -78,27 +78,6 @@ private func drag(
     view.mouseUp(with: mouse(.leftMouseUp, at: end, view: view, window: window))
 }
 
-// MARK: - Idle definition
-
-@MainActor
-@Test
-func overlayStartsIdleAndLeavesIdleWithWork() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    #expect(view.isIdle)
-
-    // A committed selection is not idle.
-    drag(from: CGPoint(x: 20, y: 20), to: CGPoint(x: 90, y: 90), view: view, window: window)
-    #expect(!view.isIdle)
-
-    view.clearWholeSelection()
-    #expect(view.isIdle)
-
-    // An annotation is not idle either.
-    view.keyDown(with: key("r", 15, window))
-    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 80, y: 80), view: view, window: window)
-    #expect(!view.isIdle)
-}
-
 // MARK: - Commit routing and the pending frozen image
 
 @MainActor
@@ -155,16 +134,6 @@ func tabForwardsToTheSessionOnlyInOverlayMode() {
 
 @MainActor
 @Test
-func fullscreenKeyForwardsToTheSessionInOverlayMode() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var presses = 0
-    view.onFullscreenKey = { presses += 1 }
-    view.keyDown(with: key("f", 3, window))
-    #expect(presses == 1)
-}
-
-@MainActor
-@Test
 func escapeDeselectsBeforeItCancels() {
     let (view, window) = makeOverlayView(image: makeImage())
     var cancelled = 0
@@ -184,220 +153,189 @@ func escapeDeselectsBeforeItCancels() {
     #expect(cancelled == 1)
 }
 
-// MARK: - Bare clicks
+// MARK: - Click captures (ADR 0014)
 
 @MainActor
-@Test
-func idleClickWithSnapOffAsksTheSessionToSeedTheDisplay() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var idleClicks = 0
-    view.onIdleClick = { idleClicks += 1 }
-
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    #expect(idleClicks == 1)
+private func click(at point: CGPoint, view: RegionPickerView, window: NSWindow) {
+    view.mouseDown(with: mouse(.leftMouseDown, at: point, view: view, window: window))
+    view.mouseUp(with: mouse(.leftMouseUp, at: point, view: view, window: window))
 }
 
-@MainActor
-@Test
-func clickAfterAnnotationsDoesNotSeedTheDisplay() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var idleClicks = 0
-    view.onIdleClick = { idleClicks += 1 }
-
-    view.keyDown(with: key("r", 15, window))
-    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 90, y: 90), view: view, window: window)
-    view.keyDown(with: key("s", 1, window))
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 150, y: 150), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 150, y: 150), view: view, window: window))
-    #expect(idleClicks == 0)
-}
+private let someWindow = WindowCandidate(
+    id: 42, frame: CGRect(x: 0, y: 0, width: 200, height: 200),
+    bundleIdentifier: "com.example.app", layer: 0, isOnScreen: true
+)
 
 @MainActor
 @Test
-func snapArmedClickAsksTheSessionToSeedTheHighlightedWindow() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    let target = WindowCandidate(
-        id: 42, frame: CGRect(x: 0, y: 0, width: 200, height: 200),
-        bundleIdentifier: "com.example.app", layer: 0, isOnScreen: true
-    )
-    var clicked: WindowCandidate?
-    var idleClicks = 0
-    view.onSnapClick = { clicked = $0 }
-    view.onIdleClick = { idleClicks += 1 }
-    view.onSnapHover = { _ in (target, NSRect(x: 0, y: 0, width: 200, height: 200)) }
-    view.setSnapArmed(true)
-
-    view.mouseMoved(with: mouse(.mouseMoved, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 50, y: 50), view: view, window: window))
-
-    #expect(clicked?.id == 42)
-    #expect(idleClicks == 0)
-}
-
-@MainActor
-@Test
-func snapArmedClickWithNoCandidateDoesNothing() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var clicked = false
-    var idleClicks = 0
-    view.onSnapClick = { _ in clicked = true }
-    view.onIdleClick = { idleClicks += 1 }
-    view.onSnapHover = { _ in nil }
-    view.setSnapArmed(true)
-
-    view.mouseMoved(with: mouse(.mouseMoved, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 50, y: 50), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 50, y: 50), view: view, window: window))
-
-    #expect(!clicked)
-    #expect(idleClicks == 0)
-}
-
-@MainActor
-@Test
-func snapDisarmClearsTheHighlightAndDragStillSelects() {
+func aClickOnEmptySpaceCapturesTheWholeDisplayImmediately() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
     view.onCommitRequested = { requested = $0 }
-    view.onSnapHover = { _ in nil }
-    view.setSnapArmed(true)
-
-    // A drag with snap armed still produces a Region-style selection commit.
-    drag(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 60, y: 60), view: view, window: window)
-    view.keyDown(with: key("\r", 36, window))
-    #expect(requested == NSRect(x: 10, y: 10, width: 50, height: 50))
-}
-
-// MARK: - Seeded selections
-
-@MainActor
-@Test
-func seedingProducesASelectionAndCapturesNothingUntilItIsConfirmed() {
-    let (view, window) = makeOverlayView(image: makeImage())
-    var requested: NSRect?
-    var activity: [Bool] = []
-    view.onCommitRequested = { requested = $0 }
-    view.onSelectionActivity = { activity.append($0) }
-
-    // What `F` and a bare display click both come down to: the whole display.
-    view.seedSelection(view.bounds)
-    #expect(requested == nil, "Seeding must not capture")
-    #expect(activity == [true], "The display owns the Selection now")
-    // No longer idle, so `F` goes back to meaning the fill-rect tool.
-    #expect(!view.isIdle)
-
-    view.keyDown(with: key("\r", 36, window))
+    click(at: CGPoint(x: 50, y: 50), view: view, window: window)
     #expect(requested == NSRect(x: 0, y: 0, width: 200, height: 200))
 }
 
 @MainActor
 @Test
-func aSeededSelectionMovesResizesAndAnnotatesLikeADraggedOne() {
+func aClickOnAHighlightedWindowCapturesItClampedToTheDisplay() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+    // A window hanging off the right edge.
+    view.onSnapHover = { _ in (someWindow, NSRect(x: 150, y: 20, width: 200, height: 60)) }
+    view.setSnapArmed(true)
+
+    view.mouseMoved(with: mouse(.mouseMoved, at: CGPoint(x: 160, y: 40), view: view, window: window))
+    click(at: CGPoint(x: 160, y: 40), view: view, window: window)
+    #expect(requested == NSRect(x: 150, y: 20, width: 50, height: 60))
+}
+
+@MainActor
+@Test
+func withSnapDisarmedTheSameClickCapturesTheDisplayInstead() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+    view.onSnapHover = { _ in (someWindow, NSRect(x: 20, y: 20, width: 60, height: 60)) }
+    view.setSnapArmed(false)
+
+    click(at: CGPoint(x: 40, y: 40), view: view, window: window)
+    #expect(requested == view.bounds, "Tab changes what a click captures, not whether it captures")
+}
+
+@MainActor
+@Test
+func aClickThatHitsAnAnnotationSelectsItAndTheNextClickClearsTheSetBeforeAnyCapture() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+    view.onSnapHover = { _ in (someWindow, NSRect(x: 0, y: 0, width: 200, height: 200)) }
+    view.setSnapArmed(true)
+
+    view.keyDown(with: key("r", 15, window))
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 90, y: 90), view: view, window: window)
+    view.keyDown(with: key("s", 1, window))
+    view.keyDown(with: key("\u{1b}", 53, window))  // deselect what was just drawn
+
+    click(at: CGPoint(x: 60, y: 60), view: view, window: window)
+    #expect(requested == nil, "Hitting the rectangle selects it")
+    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
+    #expect(requested == nil, "The next click only clears the selected set")
+    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
+    #expect(requested == NSRect(x: 0, y: 0, width: 200, height: 200),
+            "and only from a clean canvas does a click capture the window")
+}
+
+@MainActor
+@Test
+func aClickWithADrawingToolInHandNeverCaptures() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+    view.onSnapHover = { _ in (someWindow, NSRect(x: 0, y: 0, width: 200, height: 200)) }
+    view.setSnapArmed(true)
+
+    view.keyDown(with: key("r", 15, window))
+    click(at: CGPoint(x: 50, y: 50), view: view, window: window)
+    #expect(requested == nil)
+    #expect(view.annotations.isEmpty)
+}
+
+@MainActor
+@Test
+func aClickWhileTypingCommitsTheTextInsteadOfCapturing() throws {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
     view.onCommitRequested = { requested = $0 }
 
-    // A window-snap-shaped seed, well inside the display.
-    view.seedSelection(NSRect(x: 40, y: 40, width: 100, height: 100))
-
-    // Grab the edge band (clear of the handles) and move it 10pt right and down.
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 110, y: 42), view: view, window: window))
-    view.mouseDragged(with: mouse(.leftMouseDragged, at: CGPoint(x: 120, y: 52), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 120, y: 52), view: view, window: window))
-
-    // Resize by its bottom-right corner handle.
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 150, y: 150), view: view, window: window))
-    view.mouseDragged(with: mouse(.leftMouseDragged, at: CGPoint(x: 170, y: 170), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 170, y: 170), view: view, window: window))
-
-    // And annotate inside it.
-    view.keyDown(with: key("r", 15, window))
-    drag(from: CGPoint(x: 70, y: 70), to: CGPoint(x: 110, y: 110), view: view, window: window)
+    // Place a label, then re-open it for editing with the select tool by
+    // double-clicking it.
+    view.keyDown(with: key("t", 17, window))
+    click(at: CGPoint(x: 40, y: 40), view: view, window: window)
+    try #require(view.subviews.compactMap { $0 as? InlineTextView }.first).string = "Label"
+    view.keyDown(with: key("s", 1, window))
     #expect(view.annotations.count == 1)
+    view.keyDown(with: key("\u{1b}", 53, window))
+    let location = NSPoint(x: 48, y: view.bounds.height - 48)
+    let doubleClick = NSEvent.mouseEvent(
+        with: .leftMouseDown, location: location, modifierFlags: [], timestamp: 0,
+        windowNumber: window.windowNumber, context: nil,
+        eventNumber: 0, clickCount: 2, pressure: 1.0
+    )!
+    view.mouseDown(with: doubleClick)
+    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 48, y: 48), view: view, window: window))
+    #expect(view.isEditingText)
+
+    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
+    #expect(!view.isEditingText, "The click ended the edit")
+    #expect(requested == nil, "and did not fire the shutter")
+    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
+    #expect(requested == view.bounds, "The next click, from a clean canvas, captures")
+}
+
+@MainActor
+@Test
+func aClickOutsideTheSelectionDismissesItAndEnterThenCapturesTheDisplay() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+
+    drag(from: CGPoint(x: 20, y: 20), to: CGPoint(x: 90, y: 90), view: view, window: window)
+    click(at: CGPoint(x: 150, y: 150), view: view, window: window)
+    #expect(requested == nil, "Dismissing the Selection never captures")
 
     view.keyDown(with: key("\r", 36, window))
-    #expect(requested == NSRect(x: 50, y: 50, width: 120, height: 120))
+    #expect(requested == view.bounds, "With no Selection, Enter captures the display")
 }
 
 @MainActor
 @Test
-func seedingIsClampedToTheDisplayAndIgnoredWhenItMissesEntirely() {
-    let (view, _) = makeOverlayView(image: makeImage())
-    var requested: NSRect?
-    view.onCommitRequested = { requested = $0 }
-
-    // A window hanging off the right edge seeds only the part on this display.
-    view.seedSelection(NSRect(x: 150, y: 20, width: 200, height: 60))
-    view.keyDown(with: key("\r", 36, view.window!))
-    #expect(requested == NSRect(x: 150, y: 20, width: 50, height: 60))
-
-    // One that lies on another display entirely leaves this overlay idle.
-    let (other, _) = makeOverlayView(image: makeImage())
-    other.seedSelection(NSRect(x: 400, y: 400, width: 100, height: 100))
-    #expect(other.isIdle)
-}
-
-@MainActor
-@Test
-func cancellingAfterSeedingCapturesNothing() {
+func enterWithNoSelectionAsksTheSessionForTheDisplayUnderTheCursor() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
-    var cancelled = 0
+    var displayCaptures = 0
     view.onCommitRequested = { requested = $0 }
-    view.onCancel = { cancelled += 1 }
-
-    view.seedSelection(view.bounds)
-    view.keyDown(with: key("\u{1b}", 53, window))
-    #expect(cancelled == 1)
-    #expect(requested == nil)
+    view.onDisplayCaptureRequested = { displayCaptures += 1 }
+    view.keyDown(with: key("\r", 36, window))
+    #expect(displayCaptures == 1)
+    #expect(requested == nil, "The session decides which display that is")
 }
-
-// MARK: - Idle helper card
 
 @MainActor
 @Test
-func helperCardShowsWhileIdleAndFollowsTheSnapState() {
+func fIsAlwaysTheFillRectTool() {
     let (view, window) = makeOverlayView(image: makeImage())
-    var snapArmed = false
-    view.helperCardContent = {
-        HelperCard.content(snapArmed: snapArmed, suppressed: false)
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+    view.keyDown(with: key("f", 3, window))
+    #expect(requested == nil, "F is not a fullscreen route")
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 60, y: 60), view: view, window: window)
+    #expect(view.annotations.count == 1)
+    if case .fillRect = view.annotations[0] {} else {
+        Issue.record("F should have selected the fill-rect tool")
     }
-
-    view.viewWillDraw()
-    #expect(view.helperCard != nil)
-    let offStatus = view.helperCard?.content.status
-    #expect(offStatus == "Window snap: OFF (Tab)")
-
-    snapArmed = true
-    view.viewWillDraw()
-    #expect(view.helperCard?.content.status == "Window snap: ON (Tab)")
-
-    // The card leaves as soon as the overlay is no longer idle...
-    view.keyDown(with: key("r", 15, window))
-    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 80, y: 80), view: view, window: window)
-    view.viewWillDraw()
-    #expect(view.helperCard == nil)
-
-    // ...and returns when it is idle again: select the annotation and
-    // delete it.
-    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 55, y: 30), view: view, window: window))
-    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 55, y: 30), view: view, window: window))
-    view.keyDown(with: key("\u{7f}", 51, window))
-    view.viewWillDraw()
-    #expect(view.helperCard != nil)
 }
 
 @MainActor
 @Test
-func suppressedHelperCardNeverAppears() {
-    let (view, _) = makeOverlayView(image: makeImage())
-    view.helperCardContent = {
-        HelperCard.content(snapArmed: false, suppressed: true)
-    }
-    view.viewWillDraw()
-    #expect(view.helperCard == nil)
+func annotationsOutsideTheCapturedRectAreClippedAway() throws {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.keyDown(with: key("f", 3, window))
+    drag(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 30), view: view, window: window)
+    drag(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 120, y: 120), view: view, window: window)
+    view.keyDown(with: key("s", 1, window))
+    drag(from: CGPoint(x: 80, y: 80), to: CGPoint(x: 140, y: 140), view: view, window: window)
+
+    var baked: CGImage?
+    view.onCommit = { baked = $0 }
+    view.keyDown(with: key("\r", 36, window))
+    let image = try #require(baked)
+    #expect(image.width == 60 && image.height == 60)
+    let bytes = CFDataGetBytePtr(image.dataProvider!.data!)!
+    #expect(bytes[30 * image.bytesPerRow + 30 * 4] < 40, "The rect inside the crop is baked")
+    #expect(bytes[5 * image.bytesPerRow + 5 * 4] > 100,
+            "and the one outside it is gone without a trace")
 }
 
 // MARK: - Tools live from the first frame (#59, ADR 0013)
