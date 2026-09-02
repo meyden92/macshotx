@@ -593,21 +593,38 @@ final class RegionPickerView: NSView {
 
     // MARK: Chrome placement
 
+    /// Whether this overlay shows the tool strip. The session shows it only on
+    /// the display under the cursor, so one strip is visible at a time; the
+    /// post-capture editor and a single display never hide it.
+    private var toolStripVisible = true
+
+    func setToolStripVisible(_ visible: Bool) {
+        guard toolStripVisible != visible else { return }
+        toolStripVisible = visible
+        layoutChrome()
+    }
+
     /// Positions the tool strip and the selecting-state hint around the
-    /// Selection via the pure placement solver. In the capture overlay the
-    /// strip hides while no Selection exists; the post-capture editor keeps
-    /// its fixed strip so annotating without a crop still works.
+    /// Selection via the pure placement solver. The strip is live from the
+    /// first frame (ADR 0013): with no Selection it sits at the bottom of the
+    /// capture overlay, or at the post-capture editor's fixed top position.
     private func layoutChrome() {
         guard let toolbar else { return }
         let activeSelection = liveSelectionRect ?? selection
-        if requiresSelection {
-            toolbar.isHidden = (activeSelection == nil)
-        }
+        toolbar.isHidden = !toolStripVisible
         let hintSize = refreshSelectingHint()
         refreshResolutionBox()
 
         guard let activeSelection else {
-            let fixed = NSPoint(x: (bounds.width - toolbar.frame.width) / 2, y: 24)
+            let fixed: NSPoint
+            if requiresSelection, let placed = ChromePlacement.solve(
+                bounds: bounds, safeAreaTop: safeAreaTopInset, selection: nil,
+                boxes: .init(toolStrip: toolbar.frame.size)
+            ).toolStrip {
+                fixed = placed.origin
+            } else {
+                fixed = NSPoint(x: (bounds.width - toolbar.frame.width) / 2, y: 24)
+            }
             if toolbar.frame.origin != fixed { toolbar.setFrameOrigin(fixed) }
             if let box = resolutionBox, !box.isEditing {
                 let corner = NSPoint(
@@ -1931,10 +1948,12 @@ final class RegionPickerView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
         lastPointerPoint = point
+        // The session keys the window and moves the tool strip here whatever
+        // state the overlay is in.
         onPointerMoved?()
+        guard !isBeautifying else { return }
         if isAutoMeasureArmed {
             updateAutoMeasurePreview(at: point)
             return

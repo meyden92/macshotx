@@ -399,3 +399,39 @@ func suppressedHelperCardNeverAppears() {
     view.viewWillDraw()
     #expect(view.helperCard == nil)
 }
+
+// MARK: - Tools live from the first frame (#59, ADR 0013)
+
+@MainActor
+@Test
+func theOverlayOpensWithTheSelectToolActive() {
+    let (view, _) = makeOverlayView(image: makeImage())
+    let toolbar = view.subviews.compactMap { $0 as? RegionToolbarView }.first
+    let active = toolbar?.subviews.compactMap { $0 as? ToolButton }.first { $0.isActive }
+    #expect(active?.tool == .select)
+}
+
+@MainActor
+@Test
+func anAnnotationDrawnWithNoSelectionSurvivesIntoTheBakedImage() throws {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.keyDown(with: key("f", 3, window))
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 60, y: 60), view: view, window: window)
+    #expect(view.annotations.count == 1)
+
+    let baked = try #require(view.bakedImage())
+    let bytes = CFDataGetBytePtr(baked.dataProvider!.data!)!
+    #expect(bytes[45 * baked.bytesPerRow + 45 * 4] < 40, "The redaction is black in the bake")
+    #expect(bytes[100 * baked.bytesPerRow + 100 * 4] > 100, "and the rest is the frozen screen")
+}
+
+@MainActor
+@Test
+func theSessionCanHideTheStripOnDisplaysTheCursorIsNotOn() {
+    let (view, _) = makeOverlayView(image: makeImage())
+    let toolbar = view.subviews.compactMap { $0 as? RegionToolbarView }.first
+    view.setToolStripVisible(false)
+    #expect(toolbar?.isHidden == true)
+    view.setToolStripVisible(true)
+    #expect(toolbar?.isHidden == false)
+}

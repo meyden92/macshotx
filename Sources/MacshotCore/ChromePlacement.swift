@@ -31,15 +31,31 @@ enum ChromePlacement {
     /// no room; the Resolution box rides beside the Selection, moving to the
     /// opposite side when its preferred side is full. No box intersects
     /// another, the safe-area inset, or the display margin.
+    ///
+    /// With no Selection (`nil`) only the tool strip is placed, centred at the
+    /// bottom of the display: the tools are live before any Selection exists
+    /// (ADR 0013), and there is nothing yet for a hint or the Resolution box
+    /// to attach to.
     static func solve(
         bounds: CGRect,
         safeAreaTop: CGFloat,
-        selection: CGRect,
+        selection: CGRect?,
         boxes: Boxes
     ) -> Placements {
         let minY = bounds.minY + max(margin, safeAreaTop)
         let maxY = bounds.maxY - margin
         var result = Placements()
+
+        guard let selection else {
+            if let size = boxes.toolStrip {
+                result.toolStrip = CGRect(
+                    x: bounds.midX - size.width / 2,
+                    y: max(minY, maxY - size.height),
+                    width: size.width, height: size.height
+                )
+            }
+            return result
+        }
 
         // Tool strip and hint stack below the Selection (strip closest), or
         // above it when the stack would spill off the bottom.

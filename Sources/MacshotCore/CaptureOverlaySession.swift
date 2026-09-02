@@ -276,6 +276,7 @@ final class CaptureOverlaySession {
             window.makeFirstResponder(view)
         }
         keyWindowUnderCursor()
+        showToolStrip(on: overlayIndexUnderCursor() ?? 0)
         NSCursor.crosshair.set()
         pushSnapState()
     }
@@ -342,6 +343,7 @@ final class CaptureOverlaySession {
 
     private func pointerMoved(over index: Int) {
         guard overlays.indices.contains(index) else { return }
+        showToolStrip(on: index)
         let window = overlays[index].window
         guard !window.isKeyWindow, NSApp.isActive else { return }
         // Hovering must not yank key away from an overlay mid-text-edit —
@@ -353,6 +355,15 @@ final class CaptureOverlaySession {
     }
 
     // MARK: - Cross-display state
+
+    /// One tool strip at a time: on the display under the cursor. Tool and
+    /// style state is already mirrored everywhere, so whichever strip shows is
+    /// current.
+    private func showToolStrip(on index: Int) {
+        for (i, overlay) in overlays.enumerated() {
+            overlay.view.setToolStripVisible(i == index)
+        }
+    }
 
     private func selectionActivity(on index: Int, active: Bool) {
         if active {

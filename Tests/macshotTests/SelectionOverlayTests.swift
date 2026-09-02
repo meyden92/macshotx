@@ -154,17 +154,17 @@ func rightClickWithExistingSelectionDoesNothing() async {
 
 @MainActor
 @Test
-func toolStripHiddenWithoutSelectionInCaptureOverlayAndFollowsIt() async {
+func toolStripIsLiveFromTheFirstFrameAndFollowsTheSelectionOnceThereIsOne() async {
     let (view, window) = makeHostedView(width: 900, height: 600)
     let toolbar = view.subviews.compactMap { $0 as? RegionToolbarView }.first
-    #expect(toolbar?.isHidden == true, "Capture overlay starts with the strip hidden")
+    #expect(toolbar?.isHidden == false, "The strip is there before any Selection exists")
+    #expect(toolbar?.frame.maxY == 592, "and sits 8pt above the bottom edge")
 
     view.mouseDown(with: mouseEvent(.leftMouseDown, atViewPoint: CGPoint(x: 100, y: 100), in: view, window: window))
     view.mouseDragged(with: mouseEvent(.leftMouseDragged, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
     view.mouseUp(with: mouseEvent(.leftMouseUp, atViewPoint: CGPoint(x: 300, y: 200), in: view, window: window))
 
-    #expect(toolbar?.isHidden == false, "Committing a Selection reveals the strip")
-    #expect(toolbar?.frame.minY == 208, "Strip sits 8pt below the Selection")
+    #expect(toolbar?.frame.minY == 208, "Once a Selection exists the strip sits 8pt below it")
     _ = window
 }
 
