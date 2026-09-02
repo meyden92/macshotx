@@ -172,6 +172,8 @@ final class CaptureOverlaySession {
     private func imageArrived(on index: Int, image: CGImage) {
         guard !hasResumed, overlays.indices.contains(index) else { return }
         let view = overlays[index].view
+        // The frozen image sizes the pixel scale (#51); bounds must match the display.
+        Log.info("Overlay \(index): frozen image \(image.width)x\(image.height) for bounds \(view.bounds.size)")
         view.installFrozenImage(image)
         // Boundary-snap edge index, built off the main actor once the frozen
         // image exists; early gestures simply don't snap.
@@ -317,8 +319,7 @@ final class CaptureOverlaySession {
     private func quartzFrame(of screen: NSScreen) -> CGRect {
         if let id = Self.displayID(of: screen) { return CGDisplayBounds(id) }
         // No display id (virtual screens): flip against the zero screen.
-        let primaryHeight = screens.first { $0.frame.origin == .zero }?.frame.height
-            ?? screens.first?.frame.height ?? 0
+        let primaryHeight = screens.first?.frame.height ?? 0
         return CGRect(
             x: screen.frame.minX,
             y: primaryHeight - screen.frame.maxY,
@@ -438,7 +439,9 @@ final class CaptureOverlaySession {
         switch model.requestCommit(on: index, rect: rect) {
         case .perform:
             performCommit(on: index, rect: rect)
-        case .held, .ignored:
+        case .held:
+            Log.info("Commit on display \(index) held until its frozen image lands")
+        case .ignored:
             break
         }
     }
