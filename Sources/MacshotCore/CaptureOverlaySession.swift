@@ -35,7 +35,11 @@ final class CaptureOverlaySession {
     private static weak var active: CaptureOverlaySession?
 
     static func run() async -> Outcome {
-        guard active == nil else { return .cancelled }
+        guard active == nil else {
+            Log.info("Capture requested while a session is already up; ignored")
+            return .cancelled
+        }
+        Log.info("Capture session starting on \(NSScreen.screens.count) screen(s)")
         let session = CaptureOverlaySession()
         active = session
         defer { if active === session { active = nil } }
@@ -477,6 +481,14 @@ final class CaptureOverlaySession {
     private func finish(_ outcome: Outcome) {
         guard !hasResumed else { return }
         hasResumed = true
+        switch outcome {
+        case .committed(let commit):
+            Log.info("Capture session committed \(commit.image.width)x\(commit.image.height)")
+        case .cancelled:
+            Log.info("Capture session cancelled")
+        case .failed(let error):
+            Log.error("Capture session failed: \(error)")
+        }
         NSCursor.arrow.set()
         for overlay in overlays {
             overlay.window.orderOut(nil)
