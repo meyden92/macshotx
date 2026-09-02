@@ -762,3 +762,50 @@ func combinedBoundsWrapEveryAnnotationWhereItIsDrawn() {
     #expect(abs((bounds?.minY ?? 0) - 75) < 1e-6)
     #expect(abs((bounds?.maxY ?? 0) - 175) < 1e-6)
 }
+
+
+// MARK: - Shift-constrained handle drags
+
+@Test
+func shiftSnapsAResizedLineEndpointOntoA45DegreeRayFromTheOtherEnd() {
+    let line = Annotation.line(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 0), .default)
+    let free = AnnotationGeometry.resize(line, handle: .lineEnd, to: CGPoint(x: 100, y: 30))
+    let held = AnnotationGeometry.resize(
+        line, handle: .lineEnd, to: CGPoint(x: 100, y: 30), constrained: true
+    )
+    guard case let .line(_, freeEnd, _) = free, case let .line(from, heldEnd, _) = held else {
+        Issue.record("Expected lines")
+        return
+    }
+    #expect(freeEnd == CGPoint(x: 100, y: 30), "Without Shift the endpoint follows the cursor")
+    #expect(heldEnd == CGPoint(x: 100, y: 0), "With Shift it stays on the horizontal ray")
+    #expect(from == .zero, "and the end standing still is the anchor")
+
+    let start = AnnotationGeometry.resize(
+        line, handle: .lineStart, to: CGPoint(x: 60, y: 50), constrained: true
+    )
+    guard case let .line(movedStart, _, _) = start else { return }
+    #expect(abs(movedStart.x - 55) < 0.001 && abs(movedStart.y - 45) < 0.001,
+            "A diagonal drag from the other end lands on the 45° ray through it")
+}
+
+@Test
+func shiftKeepsARectangleSquareFromItsCornerHandle() {
+    let rect = Annotation.rectangle(CGRect(x: 10, y: 10, width: 40, height: 40), .default)
+    let held = AnnotationGeometry.resize(
+        rect, handle: .bottomRight, to: CGPoint(x: 90, y: 40), constrained: true
+    )
+    guard case let .rectangle(box, _) = held else {
+        Issue.record("Expected a rectangle")
+        return
+    }
+    #expect(box == CGRect(x: 10, y: 10, width: 80, height: 80),
+            "The longer span wins on both sides, anchored at the opposite corner")
+
+    let edge = AnnotationGeometry.resize(
+        rect, handle: .right, to: CGPoint(x: 90, y: 40), constrained: true
+    )
+    guard case let .rectangle(edgeBox, _) = edge else { return }
+    #expect(edgeBox == CGRect(x: 10, y: 10, width: 80, height: 40),
+            "An edge handle has nothing for Shift to constrain")
+}

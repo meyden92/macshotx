@@ -1761,8 +1761,11 @@ final class RegionPickerView: NSView {
     }
 
     /// True between a mouse-down on an existing element with a drawing tool
-    /// and the first drag movement, which is what turns it into a drawing.
+    /// and the drag movement that turns it into a drawing.
     private var deferredDraw = false
+    /// How far the hand must move before a click on an element counts as a
+    /// drag, in points.
+    private static let dragThreshold: CGFloat = 4
 
     private func beginDrawing(at point: CGPoint) {
         if currentTool == .text {
@@ -1807,8 +1810,10 @@ final class RegionPickerView: NSView {
             return
         }
         if deferredDraw, let start = dragStart {
-            // The click on an element turned into a drag: it draws on top,
-            // from where it started.
+            // The click on an element turns into a drawing only once the hand
+            // has clearly moved; a pixel of wobble is still a click, and a
+            // click selects.
+            guard hypot(point.x - start.x, point.y - start.y) > Self.dragThreshold else { return }
             deferredDraw = false
             beginDrawing(at: start)
         }
@@ -1825,7 +1830,8 @@ final class RegionPickerView: NSView {
            let id = selectedID,
            let original = manipulationOriginal {
             document.updateLive(id, to: AnnotationGeometry.resize(
-                original, handle: handle, to: handleTarget(point, on: original)
+                original, handle: handle, to: handleTarget(point, on: original),
+                constrained: event.modifierFlags.contains(.shift)
             ))
         } else if movingAnnotation, let start = manipulationStart {
             // The whole set moves by the same delta, so its internal
@@ -2041,6 +2047,12 @@ final class RegionPickerView: NSView {
         let overElement = onSelectedHandle || hit != nil
         if manipulates, overElement {
             NSCursor.openHand.set()
+            return
+        }
+        // Under a drawing tool a click on an element selects it and a drag
+        // draws over it; the arrow says the click has a target.
+        if overElement {
+            NSCursor.arrow.set()
             return
         }
         // The Selection's interior moves it, and that gesture has no other
@@ -2418,6 +2430,16 @@ final class RegionPickerView: NSView {
             }
             selectionGesture = gesture
             layoutChrome()
+            needsDisplay = true
+        } else if let handle = resizingHandle, let id = selectedID,
+                  let original = manipulationOriginal, let window {
+            // Shift is live during a handle drag too: re-place the handle
+            // where the cursor already is.
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            document.updateLive(id, to: AnnotationGeometry.resize(
+                original, handle: handle, to: handleTarget(point, on: original),
+                constrained: event.modifierFlags.contains(.shift)
+            ))
             needsDisplay = true
         } else if let draft = draftAnnotation, draft.followsShiftConstraint,
                   let start = dragStart, let window {

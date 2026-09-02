@@ -353,6 +353,46 @@ func withADrawingToolAClickSelectsAnElementADragDrawsOnTopAndASelectedElementDra
     }
 }
 
+@MainActor
+@Test
+func aClickWithAPixelOfWobbleStillSelectsRatherThanDrawing() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.keyDown(with: key("r", 15, window))
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 90, y: 90), view: view, window: window)
+    view.keyDown(with: key("\u{1b}", 53, window))
+
+    // Down on the rectangle, a two-pixel wobble, up: a click, not a drawing.
+    drag(from: CGPoint(x: 60, y: 60), to: CGPoint(x: 62, y: 61), view: view, window: window)
+    #expect(view.annotations.count == 1, "The wobble drew nothing")
+    view.keyDown(with: key("\u{7f}", 51, window))
+    #expect(view.annotations.isEmpty, "and the click had selected the rectangle")
+}
+
+@MainActor
+@Test
+func shiftConstrainsAHandleDragOnASelectedLine() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.keyDown(with: key("l", 37, window))
+    drag(from: CGPoint(x: 20, y: 100), to: CGPoint(x: 120, y: 100), view: view, window: window)
+    // The line stays selected; drag its end handle up-and-right with Shift.
+    let location = NSPoint(x: 160, y: view.bounds.height - 70)
+    view.mouseDown(with: mouse(.leftMouseDown, at: CGPoint(x: 120, y: 100), view: view, window: window))
+    let shifted = NSEvent.mouseEvent(
+        with: .leftMouseDragged, location: location, modifierFlags: [.shift], timestamp: 0,
+        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1.0
+    )!
+    view.mouseDragged(with: shifted)
+    view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 160, y: 70), view: view, window: window))
+
+    guard case let .line(from, to, _) = view.annotations[0] else {
+        Issue.record("Expected the line")
+        return
+    }
+    #expect(from == CGPoint(x: 20, y: 100))
+    #expect(abs(to.x - 160) < 0.001 && abs(to.y - 100) < 0.001,
+            "A nearly horizontal drag snaps flat onto the ray through the anchored end")
+}
+
 // MARK: - Tools live from the first frame (#59, ADR 0013)
 
 @MainActor

@@ -419,21 +419,63 @@ enum AnnotationGeometry {
 
     // MARK: Mutation
 
+    /// `constrained` is Shift, and means the same as it does while drawing:
+    /// a line, arrow or measure endpoint snaps onto a 45° ray from the end
+    /// standing still, and a corner handle keeps a box square. Applied in the
+    /// annotation's own unrotated frame.
     static func resize(
-        _ annotation: Annotation, handle: ResizeHandle, to point: CGPoint
+        _ annotation: Annotation, handle: ResizeHandle, to point: CGPoint,
+        constrained: Bool = false
     ) -> Annotation {
         let angle = annotation.rotation
-        guard angle != 0 else { return resizedInPlace(annotation, handle: handle, to: point) }
+        guard angle != 0 else {
+            let target = constrained ? constrainedTarget(point, for: annotation, handle: handle) : point
+            return resizedInPlace(annotation, handle: handle, to: target)
+        }
         // Drive the resize in the annotation's own unrotated frame, then slide
         // the result back: rendering turns about the box's centre, and resizing
         // just moved that centre, which would otherwise swing the whole shape.
         let center = rotationCenter(of: annotation)
-        let resized = resizedInPlace(
-            annotation, handle: handle, to: point.rotated(by: -angle, about: center)
-        )
+        var local = point.rotated(by: -angle, about: center)
+        if constrained { local = constrainedTarget(local, for: annotation, handle: handle) }
+        let resized = resizedInPlace(annotation, handle: handle, to: local)
         let moved = rotationCenter(of: resized)
         let turned = moved.rotated(by: angle, about: center)
         return translate(resized, dx: turned.x - moved.x, dy: turned.y - moved.y)
+    }
+
+    /// Where a Shift-constrained handle drag actually lands.
+    private static func constrainedTarget(
+        _ point: CGPoint, for annotation: Annotation, handle: ResizeHandle
+    ) -> CGPoint {
+        guard annotation.followsShiftConstraint else { return point }
+        switch annotation {
+        case let .line(from, to, _), let .arrow(from, to, _), let .measure(from, to, _):
+            switch handle {
+            case .lineStart: return ShiftConstraint.angleSnapped(point, anchoredAt: to)
+            case .lineEnd: return ShiftConstraint.angleSnapped(point, anchoredAt: from)
+            default: return point
+            }
+        case let .rectangle(rect, _), let .ellipse(rect, _), let .fillRect(rect, _),
+             let .spotlight(rect, _), let .blur(rect), let .pixelate(rect):
+            // A corner handle squares the box about the opposite corner; an
+            // edge handle has nothing to constrain.
+            let anchor: CGPoint
+            switch handle {
+            case .topLeft: anchor = CGPoint(x: rect.maxX, y: rect.maxY)
+            case .topRight: anchor = CGPoint(x: rect.minX, y: rect.maxY)
+            case .bottomLeft: anchor = CGPoint(x: rect.maxX, y: rect.minY)
+            case .bottomRight: anchor = CGPoint(x: rect.minX, y: rect.minY)
+            default: return point
+            }
+            let square = ShiftConstraint.squared(from: anchor, to: point)
+            return CGPoint(
+                x: point.x < anchor.x ? square.minX : square.maxX,
+                y: point.y < anchor.y ? square.minY : square.maxY
+            )
+        default:
+            return point
+        }
     }
 
     private static func resizedInPlace(
