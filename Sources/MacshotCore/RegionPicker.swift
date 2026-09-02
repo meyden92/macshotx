@@ -33,8 +33,10 @@ final class RegionPickerView: NSView {
     private var frozen: CGImage?
     private var frozenImage: NSImage?
     private var scale: CGFloat
-    /// When false (post-capture editor), Done without a selection exports the
-    /// full image; the select tool acts as a crop (PRD §6.5.1).
+    /// False in the post-capture editor. Both surfaces annotate without a
+    /// crop and export everything when there is none (ADR 0013); what still
+    /// differs is that only the capture overlay takes its first click without
+    /// activation and keeps its chrome clear of the menu bar.
     private let requiresSelection: Bool
     private let onStylesChanged: ((EditorStyles) -> Void)?
     private let onBeautifyDefaultsChanged: ((BeautifyDefaults) -> Void)?
@@ -345,18 +347,21 @@ final class RegionPickerView: NSView {
 
     /// A click that neither dragged nor did anything tool-meaningful, judged
     /// by the click ladder against the facts its mouse-down recorded.
-    private func resolveBareClick(at point: CGPoint) {
-        guard let facts = pendingClick else { return }
-        pendingClick = nil
+    private func resolveBareClick(_ facts: SelectGesture.Facts, at point: CGPoint) {
         switch SelectGesture.click(facts) {
         case .selectAnnotation:
             if let id = hitAnnotationID(at: point) {
                 selectedIDs = [id]
                 refreshToolOptions()
             }
-        case .clearSelectedSet, .clearSelection, .nothing:
-            // The drag ladder already dropped the set or the Selection at
-            // mouse-down; what matters here is that nothing captures.
+        case .clearSelectedSet:
+            // Usually already done by the drag ladder at mouse-down; a click
+            // inside the Selection primed a move instead, so it is done here.
+            clearSelectedSet()
+            needsDisplay = true
+        case .clearSelection, .nothing:
+            // The drag ladder already dropped the Selection at mouse-down;
+            // what matters here is that nothing captures.
             break
         case .captureWindow:
             // The window's rect is already in view space; only the part on
@@ -827,7 +832,7 @@ final class RegionPickerView: NSView {
         clearHoverPreview()
         selectionGesture = nil
         liveSelectionRect = nil
-        clearSelection()
+        clearSelectedSet()
         refreshToolOptions()
         layoutChrome()
         // The window highlight belongs to the select tool: it goes with a
@@ -920,6 +925,8 @@ final class RegionPickerView: NSView {
     /// pointer *in the preview* is the one the user means.
     private struct PreviewMap {
         let capture: CGRect
+        /// Where the whole composed canvas is drawn on the overlay.
+        let placement: CGRect
         /// Where the capture content is drawn on the overlay.
         let content: CGRect
         private var factor: CGFloat { content.width / capture.width }
@@ -952,7 +959,7 @@ final class RegionPickerView: NSView {
             of: layout, capture: rect, in: bounds
         )
         let factor = placement.width / layout.canvas.width
-        return PreviewMap(capture: rect, content: CGRect(
+        return PreviewMap(capture: rect, placement: placement, content: CGRect(
             x: placement.minX + layout.content.minX * factor,
             y: placement.minY + layout.content.minY * factor,
             width: layout.content.width * factor,
@@ -974,7 +981,7 @@ final class RegionPickerView: NSView {
             composition.beautify.enabled.toggle()
             if composition.beautify.enabled {
                 commitTextEditing()
-                clearSelection()
+                clearSelectedSet()
                 closeColorPicker()
             }
         case .effects:
@@ -1139,22 +1146,12 @@ final class RegionPickerView: NSView {
         // is on screen is the composition and nothing else.
         NSColor.black.withAlphaComponent(0.55).setFill()
         bounds.fill()
-        guard let rect = postProcessingRect, let composed = composedPreview() else { return }
-        // The preview may have been composed from a downscaled capture, so the
-        // canvas is stated in the capture's own points rather than the
-        // preview image's pixels; the placement solver then fits it on screen.
-        let layout = PostProcessingCompositor.layout(
-            captureSize: CGSize(width: rect.width, height: rect.height),
-            settings: composition.beautify, scale: 1
-        )
-        let placement = PostProcessingCompositor.previewPlacement(
-            of: layout, capture: rect, in: bounds
-        )
-        NSImage(cgImage: composed, size: placement.size).draw(in: placement)
+        guard let map = previewMap, let composed = composedPreview() else { return }
+        NSImage(cgImage: composed, size: map.placement.size).draw(in: map.placement)
         // Window snap still works through the scaled preview, so its
         // highlight is drawn where the window appears in it.
         if snapArmed, currentTool == .select, selection == nil,
-           let map = previewMap, let (_, window) = snapHighlight {
+           let (_, window) = snapHighlight {
             drawSnapHighlight(map.toScreen(window))
         }
     }
@@ -1488,7 +1485,7 @@ final class RegionPickerView: NSView {
         _ = restyleSelected { AnnotationGeometry.flipped($0) }
     }
 
-    private func clearSelection() {
+    private func clearSelectedSet() {
         let hadSelection = !selectedIDs.isEmpty
         selectedIDs = []
         marquee = nil
@@ -1612,7 +1609,7 @@ final class RegionPickerView: NSView {
         document.beginGroup()
         for id in selectedIDs { document.remove(id) }
         document.endGroup()
-        clearSelection()
+        clearSelectedSet()
         needsDisplay = true
     }
 
@@ -1726,7 +1723,7 @@ final class RegionPickerView: NSView {
             beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
 
         case .marquee:
-            clearSelection()
+            clearSelectedSet()
             marquee = (origin: point, current: point)
             needsDisplay = true
 
@@ -1736,14 +1733,14 @@ final class RegionPickerView: NSView {
 
         case .drawSelection:
             // Empty space: drop the selected set and start a fresh Selection.
-            clearSelection()
+            clearSelectedSet()
             selection = nil
             beginSelectionGesture(.drawing(origin: point), at: point, with: event)
             needsDisplay = true
 
         case .draw:
             // Empty space under a drawing tool: drop the selected set and run it.
-            clearSelection()
+            clearSelectedSet()
             if currentTool == .text {
                 dragStart = point
                 startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
@@ -1836,20 +1833,14 @@ final class RegionPickerView: NSView {
         guard !isBeautifying else {
             guard let start = beautifyClick else { return }
             beautifyClick = nil
-            // The same click ladder as always, minus the rungs the preview
-            // cannot reach (nothing can be hit or selected under it); the
-            // window under the cursor is the one under it in the preview.
-            var facts = SelectGesture.Facts()
-            facts.tool = currentTool
-            facts.hasSelectedSet = !selectedIDs.isEmpty
-            facts.snapArmed = snapArmed
-            facts.windowUnderCursor = snapPoint(for: start).flatMap { onSnapHover?($0) } != nil
-            if let existing = selection {
-                facts.hasSelection = true
-                facts.insideSelection = existing.contains(start)
-            }
-            pendingClick = facts
-            resolveBareClick(at: start)
+            // The same click ladder as always, with the window under the
+            // cursor resolved where it appears in the preview. Nothing can be
+            // hit under the preview: the annotations are baked into it.
+            var facts = gestureFacts(at: start, event: event, wasEditingText: false)
+            facts.hitsAnnotation = false
+            facts.onSelectedHandle = false
+            facts.insideSelectedSet = false
+            resolveBareClick(facts, at: start)
             return
         }
         if let gesture = selectionGesture {
@@ -1872,7 +1863,9 @@ final class RegionPickerView: NSView {
                 at: convert(event.locationInWindow, from: nil),
                 modifiers: event.modifierFlags
             )
-            if wasBareClick { resolveBareClick(at: convert(event.locationInWindow, from: nil)) }
+            if wasBareClick, let facts = pendingClick {
+                resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+            }
             pendingClick = nil
             return
         }
@@ -1924,7 +1917,9 @@ final class RegionPickerView: NSView {
                 // nothing can still pick up the element underneath — that is
                 // what keeps elements reachable without a tool switch. The
                 // click ladder decides that and what an empty click means.
-                resolveBareClick(at: convert(event.locationInWindow, from: nil))
+                if let facts = pendingClick {
+                    resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+                }
             }
         }
         needsDisplay = true
@@ -2443,7 +2438,7 @@ final class RegionPickerView: NSView {
                 for (id, original) in manipulationOriginals {
                     document.updateLive(id, to: original)
                 }
-                clearSelection()
+                clearSelectedSet()
                 needsDisplay = true
                 return
             }
@@ -2563,7 +2558,7 @@ final class RegionPickerView: NSView {
         let survivors = selectedIDs.filter { document.contains($0) }
         if survivors.count != selectedIDs.count {
             if survivors.isEmpty {
-                clearSelection()
+                clearSelectedSet()
             } else {
                 selectedIDs = survivors
             }
@@ -2581,7 +2576,7 @@ final class RegionPickerView: NSView {
         commitTextEditing()
         switch annotation {
         case let .text(box, content, style):
-            clearSelection()
+            clearSelectedSet()
             startTextEditing(
                 in: TextLayout.fittedBox(box, content: content, style: style),
                 content: content,
@@ -2589,7 +2584,7 @@ final class RegionPickerView: NSView {
             )
             return true
         case let .callout(anchor, box, content, style):
-            clearSelection()
+            clearSelectedSet()
             startTextEditing(
                 in: TextLayout.fittedBox(box, content: content, style: style),
                 calloutAnchor: anchor,

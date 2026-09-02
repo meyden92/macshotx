@@ -101,9 +101,7 @@ func aPaddedWholeDisplayPreviewIsShrunkToFitAndCentredKeepingItsProportions() {
     let layout = PostProcessingCompositor.layout(
         captureSize: display.size, padding: 100, shadowBlur: 0, shadowOffset: 0
     )
-    let placed = PostProcessingCompositor.previewPlacement(
-        of: layout, capture: display, in: display, margin: 24
-    )
+    let placed = PostProcessingCompositor.previewPlacement(of: layout, capture: display, in: display)
     // The 1200×800 canvas fits 552 tall inside the 24pt margins: factor 0.69.
     #expect(abs(placed.width - 828) < 0.001 && abs(placed.height - 552) < 0.001)
     #expect(abs(placed.midX - 500) < 0.001 && abs(placed.midY - 300) < 0.001,

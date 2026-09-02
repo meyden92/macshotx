@@ -229,6 +229,27 @@ func aClickThatHitsAnAnnotationSelectsItAndTheNextClickClearsTheSetBeforeAnyCapt
 
 @MainActor
 @Test
+func aClickInsideTheSelectionWithASelectedSetClearsTheSetAndCapturesNothing() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    var requested: NSRect?
+    view.onCommitRequested = { requested = $0 }
+
+    drag(from: CGPoint(x: 20, y: 20), to: CGPoint(x: 150, y: 150), view: view, window: window)
+    view.keyDown(with: key("r", 15, window))
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 60, y: 60), view: view, window: window)
+    view.keyDown(with: key("s", 1, window))
+    click(at: CGPoint(x: 45, y: 45), view: view, window: window)  // select the rectangle
+
+    // Inside the Selection but on empty canvas: the set is dropped, so Delete
+    // has nothing to remove, and nothing captured.
+    click(at: CGPoint(x: 120, y: 120), view: view, window: window)
+    view.keyDown(with: key("\u{7f}", 51, window))
+    #expect(view.annotations.count == 1, "The set was cleared before Delete")
+    #expect(requested == nil)
+}
+
+@MainActor
+@Test
 func aClickWithADrawingToolInHandNeverCaptures() {
     let (view, window) = makeOverlayView(image: makeImage())
     var requested: NSRect?
@@ -361,17 +382,6 @@ func anAnnotationDrawnWithNoSelectionSurvivesIntoTheBakedImage() throws {
     let bytes = CFDataGetBytePtr(baked.dataProvider!.data!)!
     #expect(bytes[45 * baked.bytesPerRow + 45 * 4] < 40, "The redaction is black in the bake")
     #expect(bytes[100 * baked.bytesPerRow + 100 * 4] > 100, "and the rest is the frozen screen")
-}
-
-@MainActor
-@Test
-func theSessionCanHideTheStripOnDisplaysTheCursorIsNotOn() {
-    let (view, _) = makeOverlayView(image: makeImage())
-    let toolbar = view.subviews.compactMap { $0 as? RegionToolbarView }.first
-    view.setToolStripVisible(false)
-    #expect(toolbar?.isHidden == true)
-    view.setToolStripVisible(true)
-    #expect(toolbar?.isHidden == false)
 }
 
 // MARK: - Window snap highlight follows the select tool (#61)

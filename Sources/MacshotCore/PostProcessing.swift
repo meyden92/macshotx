@@ -239,13 +239,14 @@ enum PostProcessingCompositor {
     /// Where a composed canvas is drawn on the display it is previewed on, in
     /// that display's points. Anchored so the capture content stays at 1:1
     /// exactly where it is when the padded canvas fits inside `bounds`;
-    /// otherwise shrunk uniformly and centred, `margin` clear of the edges.
+    /// otherwise shrunk uniformly and centred, 24pt clear of the edges.
     /// Beautify pads outward, so a whole-display capture never fits at 1:1 —
     /// the preview scales, the bake never does (ADR 0007 as amended by ADR
     /// 0013).
     static func previewPlacement(
-        of layout: CompositionLayout, capture: CGRect, in bounds: CGRect, margin: CGFloat = 24
+        of layout: CompositionLayout, capture: CGRect, in bounds: CGRect
     ) -> CGRect {
+        let margin: CGFloat = 24
         let anchored = CGRect(
             x: capture.minX - layout.content.minX,
             y: capture.minY - layout.content.minY,
