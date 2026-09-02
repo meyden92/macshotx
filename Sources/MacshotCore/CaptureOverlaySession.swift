@@ -290,12 +290,7 @@ final class CaptureOverlaySession {
         }
         view.onTabPressed = { [weak self] in self?.tabPressed() }
         view.onFullscreenKey = { [weak self] in self?.fullscreenKeyPressed() }
-        view.onIdleClick = { [weak self] in
-            // A click on an idle overlay must not fire while another display
-            // holds the selection — a misclick would discard careful work.
-            guard let self, self.model.selectionOwner == nil else { return }
-            self.seedWholeDisplay(on: index)
-        }
+        view.onIdleClick = { [weak self] in self?.seedWholeDisplay(on: index) }
         view.onSnapClick = { [weak self] candidate in
             self?.seedWindow(candidate, on: index)
         }
@@ -393,10 +388,11 @@ final class CaptureOverlaySession {
     }
 
     /// `F`: fills the Selection to the display under the cursor while that
-    /// overlay is idle; in every other state it keeps selecting the fill-rect
-    /// tool, whose shortcut it is.
+    /// overlay is idle and may seed; in every other state it keeps selecting
+    /// the fill-rect tool, whose shortcut it is.
     private func fullscreenKeyPressed() {
-        if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle {
+        if let index = overlayIndexUnderCursor(), overlays[index].view.isIdle,
+           model.canSeed(on: index) {
             seedWholeDisplay(on: index)
             return
         }
@@ -406,16 +402,18 @@ final class CaptureOverlaySession {
     // MARK: - Seeding routes
     //
     // None of these capture: they hand the overlay a Selection and the user
-    // confirms it like any other (ADR 0011).
+    // confirms it like any other (ADR 0011). All of them refuse while another
+    // display owns the Selection (`CaptureSessionModel.canSeed`); only a drag
+    // takes it over.
 
     private func seedWholeDisplay(on index: Int) {
-        guard overlays.indices.contains(index) else { return }
+        guard overlays.indices.contains(index), model.canSeed(on: index) else { return }
         let view = overlays[index].view
         view.seedSelection(view.bounds)
     }
 
     private func seedWindow(_ candidate: WindowCandidate, on index: Int) {
-        guard overlays.indices.contains(index) else { return }
+        guard overlays.indices.contains(index), model.canSeed(on: index) else { return }
         let overlay = overlays[index]
         // The candidate's frame is global Quartz; the overlay's view space is
         // the same orientation, offset to the display's own top-left corner.
