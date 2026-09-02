@@ -10,36 +10,33 @@ final class RegionPickerView: NSView {
     // All nil in the post-capture editor, where every overlay behaviour they
     // gate stays inert.
 
-    /// A drag-selection commit was chosen; carries the selection rectangle.
-    /// When set, `confirm()` routes here instead of baking locally, so the
-    /// session can hold the commit while the frozen image is in flight.
+    /// A capture was chosen — a confirmed Selection, a clicked window or the
+    /// whole display — and carries its rectangle in view points. When set,
+    /// commits route here instead of baking locally, so the session can hold
+    /// the commit while the frozen image is in flight.
     var onCommitRequested: ((NSRect) -> Void)?
+    /// `Enter` with no Selection: the session captures the display under the
+    /// cursor, or confirms the Selection another display holds.
+    var onDisplayCaptureRequested: (() -> Void)?
     /// Selection activity: true when a gesture claims the selection, false
     /// when a gesture ends without one.
     var onSelectionActivity: ((Bool) -> Void)?
     var onTabPressed: (() -> Void)?
-    var onFullscreenKey: (() -> Void)?
-    /// A click with no drag while idle and snap is off; the session seeds the
-    /// Selection to this display.
-    var onIdleClick: (() -> Void)?
-    /// A click with no drag on a snap-highlighted window; the session seeds the
-    /// Selection to that window.
-    var onSnapClick: ((WindowCandidate) -> Void)?
     /// Resolve the snap target for a pointer position in this view's own
     /// space; returns the candidate plus its rect in that same space.
     var onSnapHover: ((NSPoint) -> (candidate: WindowCandidate, rect: NSRect)?)?
     /// The pointer moved over this overlay — the session keys its window.
     var onPointerMoved: (() -> Void)?
-    /// Content for the idle helper card; nil hides it.
-    var helperCardContent: (() -> HelperCard.Content?)?
     /// The user chose a tool here — the session mirrors it everywhere else.
     var onToolChosen: ((Tool) -> Void)?
 
     private var frozen: CGImage?
     private var frozenImage: NSImage?
     private var scale: CGFloat
-    /// When false (post-capture editor), Done without a selection exports the
-    /// full image; the select tool acts as a crop (PRD §6.5.1).
+    /// False in the post-capture editor. Both surfaces annotate without a
+    /// crop and export everything when there is none (ADR 0013); what still
+    /// differs is that only the capture overlay takes its first click without
+    /// activation and keeps its chrome clear of the menu bar.
     private let requiresSelection: Bool
     private let onStylesChanged: ((EditorStyles) -> Void)?
     private let onBeautifyDefaultsChanged: ((BeautifyDefaults) -> Void)?
@@ -139,6 +136,10 @@ final class RegionPickerView: NSView {
     /// The selected set, in z-order. Single selection is its one-element case;
     /// there is no separate code path for it.
     private var selectedIDs: [AnnotationDocument.ID] = []
+    /// The element that stays selected because it was just drawn, as opposed
+    /// to one the user picked. A drag inside it still draws (a smaller shape
+    /// inside a redact box); only a picked element drags with a drawing tool.
+    private var justPlacedID: AnnotationDocument.ID?
     /// Handles, the rotation knob and the options row address exactly one
     /// annotation — a set of several has no single box to resize and no single
     /// style to show — so they go through this rather than the set.
@@ -181,7 +182,7 @@ final class RegionPickerView: NSView {
     private var colorPickerTarget: ColorTarget = .stroke
     /// App-level saved palette (not per-tool), persisted with the editor styles.
     private var customPalette: [NSColor] = []
-    /// Mirrors the config setting that also suppresses the idle helper card.
+    /// The "Show overlay hints" setting; governs the selecting-hint chip.
     private let showOverlayHints: Bool
     private let onSelectionPrefsChanged: ((SelectionPrefs) -> Void)?
     /// Active aspect lock (width/height); nil is freeform. Persisted.
@@ -194,7 +195,6 @@ final class RegionPickerView: NSView {
     /// Window snap, session-owned and mirrored here for hit-testing/drawing.
     private(set) var snapArmed = false
     private var snapHighlight: (candidate: WindowCandidate, rect: NSRect)?
-    private(set) var helperCard: OverlayHelperCardView?
 
     init(
         frame: NSRect,
@@ -241,14 +241,6 @@ final class RegionPickerView: NSView {
 
     // MARK: Capture-overlay session surface
 
-    /// No selection, no annotations, no draft, no active text edit — the
-    /// state in which the helper card shows and `F` means fullscreen.
-    var isIdle: Bool {
-        selection == nil && liveSelectionRect == nil && selectionGesture == nil
-            && document.placed.isEmpty && draftAnnotation == nil
-            && editingTextField == nil && selectedIDs.isEmpty
-    }
-
     /// The session avoids stealing key from an overlay mid-text-edit.
     var isEditingText: Bool { editingTextField != nil }
 
@@ -273,24 +265,6 @@ final class RegionPickerView: NSView {
     /// frozen image has been installed.
     func bakedImage(croppingTo rect: NSRect? = nil) -> CGImage? {
         bake(rect: rect ?? bounds)
-    }
-
-    /// Seeds the Selection from a route that is not a drag: `F`, a bare click
-    /// on an idle overlay, or a click on a snapped window. What comes out is an
-    /// ordinary Selection — movable, resizable, annotatable — and confirming it
-    /// is still the only thing that captures (ADR 0011).
-    func seedSelection(_ rect: NSRect) {
-        let clamped = rect.intersection(bounds)
-        guard clamped.width >= 1, clamped.height >= 1 else { return }
-        selectionGesture = nil
-        liveSelectionRect = nil
-        selection = clamped
-        // A Selection exists now, so the highlight has nothing left to offer.
-        snapHighlight = nil
-        invalidateComposition()
-        onSelectionActivity?(true)
-        layoutChrome()
-        needsDisplay = true
     }
 
     /// Cross-display clearing: another display took the selection.
@@ -336,50 +310,74 @@ final class RegionPickerView: NSView {
 
     private var suppressToolBroadcast = false
 
-    /// A click that neither dragged nor did anything tool-meaningful. With
-    /// snap armed it seeds the Selection from the window under the click; with
-    /// snap off, an idle overlay seeds it to the whole display (select tool
-    /// only — a misclick with a drawing tool must not seed anything).
-    private func handleBareClick(with event: NSEvent, allowsDisplaySeeding: Bool) {
-        guard requiresSelection else { return }
-        if snapArmed {
-            // Re-resolve at the click itself rather than trusting the hover
-            // highlight — the pointer may not have moved since the window
-            // list arrived, and snap clicks only exist before a selection.
-            guard selection == nil, let onSnapHover else { return }
-            if let (candidate, _) = onSnapHover(convert(event.locationInWindow, from: nil)) {
-                onSnapClick?(candidate)
-            }
-            return
-        }
-        if allowsDisplaySeeding, isIdle { onIdleClick?() }
-    }
+    /// The facts of a mouse-down, snapshotted before the drag ladder mutates
+    /// anything, so a click that turns out to have never dragged is judged
+    /// against the state it was made in.
+    private var pendingClick: SelectGesture.Facts?
 
-    // MARK: Idle helper card
-
-    override func viewWillDraw() {
-        refreshHelperCard()
-        super.viewWillDraw()
-    }
-
-    private func refreshHelperCard() {
-        guard let content = isIdle ? helperCardContent?() : nil else {
-            helperCard?.removeFromSuperview()
-            helperCard = nil
-            return
+    /// Everything the gesture seam decides on, read off the view at `point`.
+    /// `wasEditingText` is captured by the caller before the click commits the
+    /// open editor.
+    private func gestureFacts(
+        at point: CGPoint, event: NSEvent, wasEditingText: Bool
+    ) -> SelectGesture.Facts {
+        var facts = SelectGesture.Facts()
+        facts.tool = currentTool
+        facts.commandHeld = event.modifierFlags.contains(.command)
+        facts.shiftHeld = event.modifierFlags.contains(.shift)
+        if let id = selectedID, let selected = document.annotation(for: id) {
+            facts.onSelectedHandle =
+                AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize)
+                || AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
         }
-        if helperCard?.content != content {
-            helperCard?.removeFromSuperview()
-            let card = OverlayHelperCardView(content: content)
-            addSubview(card)
-            helperCard = card
-        }
-        if let card = helperCard {
-            let centered = NSPoint(
-                x: (bounds.width - card.frame.width) / 2,
-                y: (bounds.height - card.frame.height) / 2
+        facts.insideSelectedSet = selectedIDs.count > 1
+            && (selectedSetBounds?.contains(point) ?? false)
+        let hit = hitAnnotationID(at: point)
+        facts.hitsAnnotation = hit != nil
+        facts.hitsSelectedAnnotation = hit.map { selectedIDs.contains($0) && $0 != justPlacedID } ?? false
+        facts.hasSelectedSet = !selectedIDs.isEmpty
+        facts.isEditingText = wasEditingText
+        facts.snapArmed = snapArmed
+        // Resolved at the click itself rather than off the hover highlight —
+        // the pointer may not have moved since the window list arrived.
+        facts.windowUnderCursor = snapPoint(for: point).flatMap { onSnapHover?($0) } != nil
+        if let existing = selection {
+            facts.hasSelection = true
+            facts.insideSelection = existing.contains(point)
+            facts.selectionHandle = AnnotationGeometry.rectHandle(
+                at: point, in: existing, handleSize: handleSize
             )
-            if card.frame.origin != centered { card.setFrameOrigin(centered) }
+        }
+        return facts
+    }
+
+    /// A click that neither dragged nor did anything tool-meaningful, judged
+    /// by the click ladder against the facts its mouse-down recorded.
+    private func resolveBareClick(_ facts: SelectGesture.Facts, at point: CGPoint) {
+        switch SelectGesture.click(facts) {
+        case .selectAnnotation:
+            if let id = hitAnnotationID(at: point) {
+                selectedIDs = [id]
+                justPlacedID = nil
+                refreshToolOptions()
+            }
+        case .clearSelectedSet:
+            // Usually already done by the drag ladder at mouse-down; a click
+            // inside the Selection primed a move instead, so it is done here.
+            clearSelectedSet()
+            needsDisplay = true
+        case .clearSelection, .nothing:
+            // The drag ladder already dropped the Selection at mouse-down;
+            // what matters here is that nothing captures.
+            break
+        case .captureWindow:
+            // The window's rect is already in view space; only the part on
+            // this display can be baked.
+            guard let target = snapPoint(for: point), let (_, rect) = onSnapHover?(target)
+            else { return }
+            commit(rect.intersection(bounds))
+        case .captureDisplay:
+            commit(bounds)
         }
     }
 
@@ -549,21 +547,38 @@ final class RegionPickerView: NSView {
 
     // MARK: Chrome placement
 
+    /// Whether this overlay shows the tool strip. The session shows it only on
+    /// the display under the cursor, so one strip is visible at a time; the
+    /// post-capture editor and a single display never hide it.
+    private var toolStripVisible = true
+
+    func setToolStripVisible(_ visible: Bool) {
+        guard toolStripVisible != visible else { return }
+        toolStripVisible = visible
+        layoutChrome()
+    }
+
     /// Positions the tool strip and the selecting-state hint around the
-    /// Selection via the pure placement solver. In the capture overlay the
-    /// strip hides while no Selection exists; the post-capture editor keeps
-    /// its fixed strip so annotating without a crop still works.
+    /// Selection via the pure placement solver. The strip is live from the
+    /// first frame (ADR 0013): with no Selection it sits at the bottom of the
+    /// capture overlay, or at the post-capture editor's fixed top position.
     private func layoutChrome() {
         guard let toolbar else { return }
         let activeSelection = liveSelectionRect ?? selection
-        if requiresSelection {
-            toolbar.isHidden = (activeSelection == nil)
-        }
+        toolbar.isHidden = !toolStripVisible
         let hintSize = refreshSelectingHint()
         refreshResolutionBox()
 
         guard let activeSelection else {
-            let fixed = NSPoint(x: (bounds.width - toolbar.frame.width) / 2, y: 24)
+            let fixed: NSPoint
+            if requiresSelection, let placed = ChromePlacement.solve(
+                bounds: bounds, safeAreaTop: safeAreaTopInset, selection: nil,
+                boxes: .init(toolStrip: toolbar.frame.size)
+            ).toolStrip {
+                fixed = placed.origin
+            } else {
+                fixed = NSPoint(x: (bounds.width - toolbar.frame.width) / 2, y: 24)
+            }
             if toolbar.frame.origin != fixed { toolbar.setFrameOrigin(fixed) }
             if let box = resolutionBox, !box.isEditing {
                 let corner = NSPoint(
@@ -820,13 +835,23 @@ final class RegionPickerView: NSView {
         toolbar?.setCurrent(tool)
         draftAnnotation = nil
         dragStart = nil
+        deferredDraw = false
         disarmAutoMeasure()
         clearHoverPreview()
         selectionGesture = nil
         liveSelectionRect = nil
-        clearSelection()
+        clearSelectedSet()
         refreshToolOptions()
         layoutChrome()
+        // The window highlight belongs to the select tool: it goes with a
+        // drawing tool and comes back, for the pointer's current position,
+        // with the select tool — the pointer may not move again before the
+        // click.
+        if tool == .select {
+            refreshSnapHighlightNow()
+        } else {
+            snapHighlight = nil
+        }
         needsDisplay = true
         // Switching tools kills an in-flight gesture; tell the session so a
         // claimed-but-never-committed selection doesn't stay latched.
@@ -896,11 +921,66 @@ final class RegionPickerView: NSView {
     /// confirm — that does not need it.
     var isBeautifying: Bool { composition.beautify.enabled }
 
-    /// What post-processing applies to: the Selection, or — in the detached
-    /// editor, where no crop means the whole image — everything.
+    /// What post-processing applies to: the Selection, or with none the
+    /// whole image — the display, in the capture overlay (ADR 0013).
     private var postProcessingRect: NSRect? {
-        if let selection { return selection }
-        return requiresSelection ? nil : bounds
+        selection ?? bounds
+    }
+
+    /// How the beautify preview maps between capture points and where they
+    /// are drawn, so window snap can hover and click through the scaled
+    /// preview: a whole-display preview is shrunk, and the window under the
+    /// pointer *in the preview* is the one the user means.
+    private struct PreviewMap {
+        let capture: CGRect
+        /// Where the whole composed canvas is drawn on the overlay.
+        let placement: CGRect
+        /// Where the capture content is drawn on the overlay.
+        let content: CGRect
+        private var factor: CGFloat { content.width / capture.width }
+
+        func toScreen(_ rect: CGRect) -> CGRect {
+            CGRect(
+                x: content.minX + (rect.minX - capture.minX) * factor,
+                y: content.minY + (rect.minY - capture.minY) * factor,
+                width: rect.width * factor, height: rect.height * factor
+            )
+        }
+
+        /// Nil for a point on the backdrop, which is over no window.
+        func toCapture(_ point: CGPoint) -> CGPoint? {
+            guard content.contains(point) else { return nil }
+            return CGPoint(
+                x: capture.minX + (point.x - content.minX) / factor,
+                y: capture.minY + (point.y - content.minY) / factor
+            )
+        }
+    }
+
+    private var previewMap: PreviewMap? {
+        guard isBeautifying, let rect = postProcessingRect, rect.width >= 1, rect.height >= 1
+        else { return nil }
+        let layout = PostProcessingCompositor.layout(
+            captureSize: rect.size, settings: composition.beautify, scale: 1
+        )
+        let placement = PostProcessingCompositor.previewPlacement(
+            of: layout, capture: rect, in: bounds
+        )
+        let factor = placement.width / layout.canvas.width
+        return PreviewMap(capture: rect, placement: placement, content: CGRect(
+            x: placement.minX + layout.content.minX * factor,
+            y: placement.minY + layout.content.minY * factor,
+            width: layout.content.width * factor,
+            height: layout.content.height * factor
+        ))
+    }
+
+    /// The point window snap should be asked about for a pointer at `point`:
+    /// the point itself, or its place in the capture while the beautify
+    /// preview is showing it scaled.
+    private func snapPoint(for point: CGPoint) -> CGPoint? {
+        guard let map = previewMap else { return point }
+        return map.toCapture(point)
     }
 
     private func togglePostProcessing(_ control: PostProcessingControl) {
@@ -909,7 +989,7 @@ final class RegionPickerView: NSView {
             composition.beautify.enabled.toggle()
             if composition.beautify.enabled {
                 commitTextEditing()
-                clearSelection()
+                clearSelectedSet()
                 closeColorPicker()
             }
         case .effects:
@@ -1069,56 +1149,19 @@ final class RegionPickerView: NSView {
         return image
     }
 
-    /// Where the composition sits on screen: anchored on the Selection at 1:1
-    /// when the whole canvas fits there, and otherwise shrunk uniformly and
-    /// centred so a near-fullscreen Selection does not push its backdrop off
-    /// the display.
-    private func previewPlacement(canvas: CGSize, selection: NSRect) -> NSRect {
-        let layout = PostProcessingCompositor.layout(
-            captureSize: CGSize(width: selection.width, height: selection.height),
-            settings: composition.beautify, scale: 1
-        )
-        let anchored = NSRect(
-            x: selection.minX - layout.capture.minX,
-            y: selection.minY - layout.capture.minY,
-            width: canvas.width, height: canvas.height
-        )
-        if bounds.contains(anchored) { return anchored }
-        let margin: CGFloat = 24
-        let factor = min(
-            1,
-            min(
-                (bounds.width - margin * 2) / canvas.width,
-                (bounds.height - margin * 2) / canvas.height
-            )
-        )
-        let size = CGSize(width: canvas.width * factor, height: canvas.height * factor)
-        return NSRect(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2,
-            width: size.width, height: size.height
-        )
-    }
-
     private func drawBeautifyPreview() {
         // The Selection's own dimming cutout, border and handles are gone: what
         // is on screen is the composition and nothing else.
         NSColor.black.withAlphaComponent(0.55).setFill()
         bounds.fill()
-        guard let rect = postProcessingRect, let composed = composedPreview() else { return }
-        let canvas = CGSize(
-            width: CGFloat(composed.width) / scale, height: CGFloat(composed.height) / scale
-        )
-        // The preview may have been composed from a downscaled capture, so the
-        // canvas is stated in the Selection's own points rather than the
-        // preview image's pixels.
-        let layout = PostProcessingCompositor.layout(
-            captureSize: CGSize(width: rect.width, height: rect.height),
-            settings: composition.beautify, scale: 1
-        )
-        _ = canvas
-        let placement = previewPlacement(canvas: layout.canvas, selection: rect)
-        NSImage(cgImage: composed, size: placement.size).draw(in: placement)
+        guard let map = previewMap, let composed = composedPreview() else { return }
+        NSImage(cgImage: composed, size: map.placement.size).draw(in: map.placement)
+        // Window snap still works through the scaled preview, so its
+        // highlight is drawn where the window appears in it.
+        if snapArmed, currentTool == .select, selection == nil,
+           let (_, window) = snapHighlight {
+            drawSnapHighlight(map.toScreen(window))
+        }
     }
 
     // MARK: Colour picker
@@ -1450,9 +1493,10 @@ final class RegionPickerView: NSView {
         _ = restyleSelected { AnnotationGeometry.flipped($0) }
     }
 
-    private func clearSelection() {
+    private func clearSelectedSet() {
         let hadSelection = !selectedIDs.isEmpty
         selectedIDs = []
+        justPlacedID = nil
         marquee = nil
         resizingHandle = nil
         movingAnnotation = false
@@ -1574,23 +1618,33 @@ final class RegionPickerView: NSView {
         document.beginGroup()
         for id in selectedIDs { document.remove(id) }
         document.endGroup()
-        clearSelection()
+        clearSelectedSet()
         needsDisplay = true
     }
 
     // MARK: Mouse
 
+    /// Where a click landed while the beautify preview was up; nil once it
+    /// turns into a drag, which the preview does not take.
+    private var beautifyClick: CGPoint?
+
     override func mouseDown(with event: NSEvent) {
-        // The beautify preview is a review mode: the capture is read-only until
-        // the toggle goes off again.
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
+        // The beautify preview is a review mode: the capture is read-only for
+        // annotating until the toggle goes off again (ADR 0007). A click still
+        // captures from a clean canvas, judged at mouse-up.
+        guard !isBeautifying else {
+            beautifyClick = point
+            return
+        }
         lastPointerPoint = point
         clearHoverPreview()
         // A click on the overlay itself is a click outside the picker and
         // outside any open editor; both would have swallowed their own.
         closeColorPicker()
+        let wasEditingText = editingTextField != nil
         commitTextEditing()
+        pendingClick = nil
 
         // A click while auto-measure is armed commits what the preview showed,
         // and stays armed: the key is still held, so the user can sweep on and
@@ -1609,16 +1663,12 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Anchored mode: a left-click commits the Selection where it stands.
+        // Anchored mode: a left-click settles the Selection where it stands.
         if case .anchored? = selectionGesture?.kind {
-            if let rect = liveSelectionRect {
-                selection = rect
-            }
+            let rect = liveSelectionRect
             selectionGesture = nil
             liveSelectionRect = nil
-            onSelectionActivity?(selection != nil)
-            layoutChrome()
-            needsDisplay = true
+            settleSelection(rect)
             return
         }
 
@@ -1639,15 +1689,97 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Grabbing a placed element belongs to the select tool. While a drawing
-        // tool is active the drag has to draw instead, or there is no way to
-        // put a new element on top of an existing one — a smaller rectangle
-        // inside a redact box, a label over an arrow. Command grabs without
-        // switching tools, and a bare click still selects (see mouseUp).
-        let manipulates = currentTool == .select
-            || event.modifierFlags.contains(.command)
+        // Everything else is the gesture seam's call: the facts are read once,
+        // the drag ladder primes what the drag will do, and the click ladder
+        // is consulted at mouse-up if it never dragged.
+        let facts = gestureFacts(at: point, event: event, wasEditingText: wasEditingText)
+        pendingClick = facts
 
-        if manipulates, let id = selectedID, let selected = document.annotation(for: id) {
+        switch SelectGesture.drag(facts) {
+        case .manipulateSelected:
+            beginSelectedManipulation(at: point)
+
+        case .toggleMembership:
+            // Shift-click fixes up a marquee that caught one item too many.
+            guard let id = hitAnnotationID(at: point) else { return }
+            if let existing = selectedIDs.firstIndex(of: id) {
+                selectedIDs.remove(at: existing)
+            } else {
+                selectedIDs.append(id)
+            }
+            refreshToolOptions()
+            needsDisplay = true
+
+        case .grabAnnotation:
+            // Body hit. Prime a move drag (only kicks in once the mouse actually
+            // moves; a bare click just selects).
+            guard let id = hitAnnotationID(at: point) else { return }
+            selectedIDs = [id]
+            justPlacedID = nil
+            resizingHandle = nil
+            movingAnnotation = true
+            movingLoupeCircle = document.annotation(for: id).flatMap {
+                AnnotationGeometry.loupeCircle(of: $0, at: point)
+            }
+            beginManipulation(at: point, of: [id])
+            refreshToolOptions()
+
+        case .resizeSelection(let handle):
+            guard let existing = selection else { return }
+            beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
+
+        case .marquee:
+            clearSelectedSet()
+            marquee = (origin: point, current: point)
+            needsDisplay = true
+
+        case .moveSelection:
+            guard let existing = selection else { return }
+            beginSelectionGesture(.moving(original: existing, grab: point), at: point, with: event)
+
+        case .drawSelection:
+            // Empty space: drop the selected set and start a fresh Selection.
+            clearSelectedSet()
+            selection = nil
+            beginSelectionGesture(.drawing(origin: point), at: point, with: event)
+            needsDisplay = true
+
+        case .draw:
+            // A drawing tool: drop the selected set and run it. Over an
+            // existing element nothing is placed until the hand moves, so a
+            // bare click can pick the element up instead (see mouseUp) while
+            // a drag still draws on top of it.
+            clearSelectedSet()
+            dragStart = point
+            if facts.hitsAnnotation {
+                deferredDraw = true
+            } else {
+                beginDrawing(at: point)
+            }
+            needsDisplay = true
+        }
+    }
+
+    /// True between a mouse-down on an existing element with a drawing tool
+    /// and the drag movement that turns it into a drawing.
+    private var deferredDraw = false
+    /// How far the hand must move before a click on an element counts as a
+    /// drag, in points.
+    private static let dragThreshold: CGFloat = 4
+
+    private func beginDrawing(at point: CGPoint) {
+        if currentTool == .text {
+            startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
+        } else {
+            draftAnnotation = makeDraft(at: point)
+        }
+    }
+
+    /// A drag from what is already selected: the single selected annotation's
+    /// rotation knob or resize handle, or the combined outline of a set of
+    /// several, which moves as one unit.
+    private func beginSelectedManipulation(at point: CGPoint) {
+        if let id = selectedID, let selected = document.annotation(for: id) {
             // The rotation handle floats clear of the box, so it is checked
             // first only to keep the two grabs from ever competing.
             if AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize) {
@@ -1663,84 +1795,28 @@ final class RegionPickerView: NSView {
                 return
             }
         }
-
-        let shift = event.modifierFlags.contains(.shift)
-
-        // A set of several drags as one unit from anywhere inside its combined
-        // outline; Shift is reserved for changing who is in the set.
-        if manipulates, !shift, selectedIDs.count > 1,
-           let bounds = selectedSetBounds, bounds.contains(point) {
-            movingAnnotation = true
-            beginManipulation(at: point, of: selectedIDs)
-            return
-        }
-
-        if manipulates, let id = hitAnnotationID(at: point) {
-            if shift {
-                // Shift-click fixes up a marquee that caught one item too many.
-                if let existing = selectedIDs.firstIndex(of: id) {
-                    selectedIDs.remove(at: existing)
-                } else {
-                    selectedIDs.append(id)
-                }
-                refreshToolOptions()
-                needsDisplay = true
-                return
-            }
-            // Body hit. Prime a move drag (only kicks in once the mouse actually
-            // moves; a bare click just selects).
-            selectedIDs = [id]
-            resizingHandle = nil
-            movingAnnotation = true
-            movingLoupeCircle = document.annotation(for: id).flatMap {
-                AnnotationGeometry.loupeCircle(of: $0, at: point)
-            }
-            beginManipulation(at: point, of: [id])
-            refreshToolOptions()
-            return
-        }
-
-        // With the select tool, an existing Selection resizes via its handles
-        // and moves by a drag anywhere inside it — the gesture every other app
-        // teaches, and the one users reach for first. The annotation marquee
-        // used to own the interior and silently dropped the Selection instead
-        // of moving it; it lives on Command-drag now.
-        if currentTool == .select, let existing = selection {
-            if let handle = AnnotationGeometry.rectHandle(at: point, in: existing, handleSize: handleSize) {
-                beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
-                return
-            }
-            if existing.contains(point) {
-                if event.modifierFlags.contains(.command) {
-                    clearSelection()
-                    marquee = (origin: point, current: point)
-                    needsDisplay = true
-                    return
-                }
-                beginSelectionGesture(.moving(original: existing, grab: point), at: point, with: event)
-                return
-            }
-        }
-
-        // Empty space: drop any selection and run the active tool.
-        clearSelection()
-        switch currentTool {
-        case .select:
-            selection = nil
-            beginSelectionGesture(.drawing(origin: point), at: point, with: event)
-        case .text:
-            dragStart = point
-            startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
-        default:
-            dragStart = point
-            draftAnnotation = makeDraft(at: point)
-        }
-        needsDisplay = true
+        movingAnnotation = true
+        beginManipulation(at: point, of: selectedIDs)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
+        guard !isBeautifying else {
+            // A hand that moved more than a jitter meant a drag, and the
+            // preview has nothing for a drag to do.
+            if let start = beautifyClick, hypot(point.x - start.x, point.y - start.y) > 3 {
+                beautifyClick = nil
+            }
+            return
+        }
+        if deferredDraw, let start = dragStart {
+            // The click on an element turns into a drawing only once the hand
+            // has clearly moved; a pixel of wobble is still a click, and a
+            // click selects.
+            guard hypot(point.x - start.x, point.y - start.y) > Self.dragThreshold else { return }
+            deferredDraw = false
+            beginDrawing(at: start)
+        }
         // Manipulating a grabbed element wins over whatever the active tool does.
         if rotatingAnnotation, let id = selectedID, let original = manipulationOriginal {
             // Turned from the pre-drag angle every tick, so the handle tracks
@@ -1754,7 +1830,8 @@ final class RegionPickerView: NSView {
            let id = selectedID,
            let original = manipulationOriginal {
             document.updateLive(id, to: AnnotationGeometry.resize(
-                original, handle: handle, to: handleTarget(point, on: original)
+                original, handle: handle, to: handleTarget(point, on: original),
+                constrained: event.modifierFlags.contains(.shift)
             ))
         } else if movingAnnotation, let start = manipulationStart {
             // The whole set moves by the same delta, so its internal
@@ -1785,28 +1862,51 @@ final class RegionPickerView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard !isBeautifying else { return }
+        guard !isBeautifying else {
+            guard let start = beautifyClick else { return }
+            beautifyClick = nil
+            // The same click ladder as always, with the window under the
+            // cursor resolved where it appears in the preview. Nothing can be
+            // hit under the preview: the annotations are baked into it.
+            var facts = gestureFacts(at: start, event: event, wasEditingText: false)
+            facts.hitsAnnotation = false
+            facts.onSelectedHandle = false
+            facts.insideSelectedSet = false
+            resolveBareClick(facts, at: start)
+            return
+        }
         if let gesture = selectionGesture {
             // A gesture that never produced a rectangle (a bare click) leaves
             // the committed Selection as it was.
-            let wasBareClick = liveSelectionRect == nil
-            if let rect = liveSelectionRect {
-                selection = rect
-                // An armed exact size is consumed by the Selection it creates.
-                if case .placingFixedSize = gesture.kind { armedExactSize = nil }
-            }
+            let rect = liveSelectionRect
+            // An armed exact size is consumed by the Selection it creates.
+            if rect != nil, case .placingFixedSize = gesture.kind { armedExactSize = nil }
             selectionGesture = nil
             liveSelectionRect = nil
-            invalidateComposition()
-            onSelectionActivity?(selection != nil)
-            layoutChrome()
-            needsDisplay = true
             // The closed hand a move drag set has nothing left to hold.
             updateCursor(
                 at: convert(event.locationInWindow, from: nil),
                 modifiers: event.modifierFlags
             )
-            if wasBareClick { handleBareClick(with: event, allowsDisplaySeeding: true) }
+            if let facts = pendingClick, rect == nil {
+                settleSelection(nil)
+                resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+            } else {
+                settleSelection(rect)
+            }
+            pendingClick = nil
+            return
+        }
+        defer { pendingClick = nil }
+        if deferredDraw {
+            // A click on an element that never dragged: it selects rather
+            // than draws, whatever tool is in hand.
+            deferredDraw = false
+            dragStart = nil
+            if let facts = pendingClick {
+                resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+            }
+            needsDisplay = true
             return
         }
         if marquee != nil {
@@ -1844,6 +1944,7 @@ final class RegionPickerView: NSView {
             // What was just drawn stays selected, so a tool option changed
             // straight afterwards lands on it instead of only on the next one.
             selectedIDs = [document.insert(settled(draft))]
+            justPlacedID = selectedIDs[0]
             draftAnnotation = nil
             dragStart = nil
             refreshToolOptions()
@@ -1854,14 +1955,10 @@ final class RegionPickerView: NSView {
             if discardedToolClick {
                 // Only drags belong to the drawing tool, so a click that drew
                 // nothing can still pick up the element underneath — that is
-                // what keeps elements reachable without a tool switch.
-                if let id = hitAnnotationID(at: convert(event.locationInWindow, from: nil)) {
-                    selectedIDs = [id]
-                    refreshToolOptions()
-                } else {
-                    // A tool click on empty canvas still snap-seeds a Selection
-                    // from the window under it; with snap off it stays a no-op.
-                    handleBareClick(with: event, allowsDisplaySeeding: false)
+                // what keeps elements reachable without a tool switch. The
+                // click ladder decides that and what an empty click means.
+                if let facts = pendingClick {
+                    resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
                 }
             }
         }
@@ -1896,10 +1993,16 @@ final class RegionPickerView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard !isBeautifying else { return }
         let point = convert(event.locationInWindow, from: nil)
         lastPointerPoint = point
+        // The session keys the window and moves the tool strip here whatever
+        // state the overlay is in.
         onPointerMoved?()
+        guard !isBeautifying else {
+            // Only the window highlight lives on under the preview.
+            updateSnapHighlight(atWindowPoint: event.locationInWindow)
+            return
+        }
         if isAutoMeasureArmed {
             updateAutoMeasurePreview(at: point)
             return
@@ -1928,19 +2031,28 @@ final class RegionPickerView: NSView {
     /// "draw here" rather than promising a move. Command flips that back, which
     /// is why flagsChanged re-runs this without the pointer having moved.
     private func updateCursor(at point: NSPoint, modifiers: NSEvent.ModifierFlags) {
-        let manipulates = currentTool == .select || modifiers.contains(.command)
-        let overElement: Bool
-        if let id = selectedID, let selected = document.annotation(for: id),
-           AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
-            || AnnotationGeometry.isOnRotationHandle(
-                point, of: selected, handleSize: handleSize
-            ) {
-            overElement = true
-        } else {
-            overElement = hitAnnotationID(at: point) != nil
+        var onSelectedHandle = false
+        if let id = selectedID, let selected = document.annotation(for: id) {
+            onSelectedHandle =
+                AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
+                || AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize)
         }
+        let hit = hitAnnotationID(at: point)
+        // What is already selected drags with any tool, so it reads as
+        // grabbable with any tool.
+        let overSelected = onSelectedHandle
+            || hit.map { selectedIDs.contains($0) && $0 != justPlacedID } ?? false
+            || (selectedIDs.count > 1 && (selectedSetBounds?.contains(point) ?? false))
+        let manipulates = currentTool == .select || modifiers.contains(.command) || overSelected
+        let overElement = onSelectedHandle || hit != nil
         if manipulates, overElement {
             NSCursor.openHand.set()
+            return
+        }
+        // Under a drawing tool a click on an element selects it and a drag
+        // draws over it; the arrow says the click has a target.
+        if overElement {
+            NSCursor.arrow.set()
             return
         }
         // The Selection's interior moves it, and that gesture has no other
@@ -1958,13 +2070,15 @@ final class RegionPickerView: NSView {
         NSCursor.crosshair.set()
     }
 
-    /// With snap armed and no selection in progress, the topmost window under
-    /// the pointer highlights; the session resolves who that is.
+    /// With snap armed, the select tool active and no selection in progress,
+    /// the topmost window under the pointer highlights; the session resolves
+    /// who that is. A drawing tool in hand means the highlight must not chase
+    /// the cursor across the screen (ADR 0014).
     private func updateSnapHighlight(atWindowPoint point: NSPoint) {
-        guard snapArmed, let onSnapHover,
+        guard snapArmed, currentTool == .select, let onSnapHover,
               selection == nil, selectionGesture == nil
         else { return }
-        let next = onSnapHover(convert(point, from: nil))
+        let next = snapPoint(for: convert(point, from: nil)).flatMap { onSnapHover($0) }
         if next?.candidate.id != snapHighlight?.candidate.id
             || next?.rect != snapHighlight?.rect {
             snapHighlight = next
@@ -2317,6 +2431,16 @@ final class RegionPickerView: NSView {
             selectionGesture = gesture
             layoutChrome()
             needsDisplay = true
+        } else if let handle = resizingHandle, let id = selectedID,
+                  let original = manipulationOriginal, let window {
+            // Shift is live during a handle drag too: re-place the handle
+            // where the cursor already is.
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            document.updateLive(id, to: AnnotationGeometry.resize(
+                original, handle: handle, to: handleTarget(point, on: original),
+                constrained: event.modifierFlags.contains(.shift)
+            ))
+            needsDisplay = true
         } else if let draft = draftAnnotation, draft.followsShiftConstraint,
                   let start = dragStart, let window {
             // Shift is live: reshape the draft where the cursor already is,
@@ -2373,7 +2497,7 @@ final class RegionPickerView: NSView {
                 for (id, original) in manipulationOriginals {
                     document.updateLive(id, to: original)
                 }
-                clearSelection()
+                clearSelectedSet()
                 needsDisplay = true
                 return
             }
@@ -2452,13 +2576,6 @@ final class RegionPickerView: NSView {
         // nothing; the toolbar already says why.
         if isBeautifying { return }
         if !cmd, let key = event.charactersIgnoringModifiers?.lowercased() {
-            // `F` is fullscreen-from-the-overlay when the overlay under the
-            // cursor is idle; the session decides and otherwise reasserts the
-            // fill-rect tool, so the shortcut keeps its meaning everywhere else.
-            if key == "f", let onFullscreenKey {
-                onFullscreenKey()
-                return
-            }
             let tool = Tool.allCases.first { !$0.keyEquivalent.isEmpty && $0.keyEquivalent == key }
             if let tool {
                 setTool(tool)
@@ -2500,7 +2617,7 @@ final class RegionPickerView: NSView {
         let survivors = selectedIDs.filter { document.contains($0) }
         if survivors.count != selectedIDs.count {
             if survivors.isEmpty {
-                clearSelection()
+                clearSelectedSet()
             } else {
                 selectedIDs = survivors
             }
@@ -2518,7 +2635,7 @@ final class RegionPickerView: NSView {
         commitTextEditing()
         switch annotation {
         case let .text(box, content, style):
-            clearSelection()
+            clearSelectedSet()
             startTextEditing(
                 in: TextLayout.fittedBox(box, content: content, style: style),
                 content: content,
@@ -2526,7 +2643,7 @@ final class RegionPickerView: NSView {
             )
             return true
         case let .callout(anchor, box, content, style):
-            clearSelection()
+            clearSelectedSet()
             startTextEditing(
                 in: TextLayout.fittedBox(box, content: content, style: style),
                 calloutAnchor: anchor,
@@ -2658,16 +2775,47 @@ final class RegionPickerView: NSView {
 
     // MARK: Confirm + bake
 
-    private func confirm() {
+    /// Return, Done, or a double-click inside the Selection. A Selection is
+    /// captured as it stands; with none, the whole image is — in the capture
+    /// overlay that is the display under the cursor, which the session
+    /// resolves because another display may hold the Selection (ADR 0014).
+    func confirm() {
         commitTextEditing()
-        var rect = selection ?? liveSelectionRect
-        if rect == nil && !requiresSelection {
-            // Post-capture editor: no crop selection means export everything.
-            rect = bounds
+        if let rect = selection ?? liveSelectionRect {
+            commit(rect)
+        } else if let onDisplayCaptureRequested {
+            onDisplayCaptureRequested()
+        } else {
+            commit(bounds)
         }
-        guard let rect, rect.width >= 1, rect.height >= 1 else { return }
-        // Capture overlay: the session bakes (and can hold the commit until
-        // the frozen image lands).
+    }
+
+    /// A Selection gesture ended with `rect` (nil for a bare click, which
+    /// leaves any committed Selection as it was). In the capture overlay a
+    /// finished drag is the capture: it commits on release, like a click on a
+    /// window (ADR 0014 as amended). Only the post-capture editor keeps an
+    /// adjustable crop Selection to confirm.
+    private func settleSelection(_ rect: NSRect?) {
+        if let rect, requiresSelection {
+            invalidateComposition()
+            onSelectionActivity?(false)
+            layoutChrome()
+            needsDisplay = true
+            commit(rect)
+            return
+        }
+        if let rect { selection = rect }
+        invalidateComposition()
+        onSelectionActivity?(selection != nil)
+        layoutChrome()
+        needsDisplay = true
+    }
+
+    /// The one commit path, for a confirmed Selection and a click capture
+    /// alike: the session bakes (and can hold the commit until the frozen
+    /// image lands), or the post-capture editor bakes locally.
+    private func commit(_ rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
         if let onCommitRequested {
             onCommitRequested(rect)
             return
@@ -2788,14 +2936,9 @@ final class RegionPickerView: NSView {
 
         // The highlight hides the moment a selection gesture begins, but the
         // state survives so a click-no-drag can still capture the window.
-        if snapArmed, selection == nil, liveSelectionRect == nil,
+        if snapArmed, currentTool == .select, selection == nil, liveSelectionRect == nil,
            selectionGesture == nil, let (_, rect) = snapHighlight {
-            NSColor.systemBlue.withAlphaComponent(0.18).setFill()
-            rect.fill()
-            NSColor.systemBlue.withAlphaComponent(0.9).setStroke()
-            let path = NSBezierPath(rect: rect)
-            path.lineWidth = 2.0
-            path.stroke()
+            drawSnapHighlight(rect)
         }
 
         if let cgCtx = NSGraphicsContext.current?.cgContext {
@@ -2888,6 +3031,15 @@ final class RegionPickerView: NSView {
                 }
             }
         }
+    }
+
+    private func drawSnapHighlight(_ rect: NSRect) {
+        NSColor.systemBlue.withAlphaComponent(0.18).setFill()
+        rect.fill()
+        NSColor.systemBlue.withAlphaComponent(0.9).setStroke()
+        let path = NSBezierPath(rect: rect)
+        path.lineWidth = 2.0
+        path.stroke()
     }
 
     /// A set of several draws one combined outline and a floating delete
@@ -3122,7 +3274,7 @@ final class RegionToolbarView: NSView {
         done.onClick = { [weak self] in self?.onDone?() }
         done.onHover = { [weak self, weak done] hovering in
             guard let self, let done else { return }
-            self.onButtonHover?(hovering ? "Capture selected region (Return)" : nil, done.frame)
+            self.onButtonHover?(hovering ? "Capture (Return)" : nil, done.frame)
         }
         done.frame = NSRect(x: x, y: buttonRowY, width: 64, height: 36)
         addSubview(done)
@@ -3322,47 +3474,6 @@ final class OverlayTooltipView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-}
-
-/// Centred idle helper card: one instruction line plus the window-snap status
-/// line. Not interactive — hit testing passes through, so clicking or
-/// dragging over it behaves as if it were not there. Phase 7 restyles it.
-final class OverlayHelperCardView: NSView {
-    let content: HelperCard.Content
-
-    init(content: HelperCard.Content) {
-        self.content = content
-        let instruction = NSTextField(labelWithString: content.instruction)
-        instruction.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        instruction.textColor = .labelColor
-        instruction.alignment = .center
-        let status = NSTextField(labelWithString: content.status)
-        status.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        status.textColor = .secondaryLabelColor
-        status.alignment = .center
-
-        let instructionSize = instruction.intrinsicContentSize
-        let statusSize = status.intrinsicContentSize
-        let width = max(instructionSize.width, statusSize.width) + 32
-        let height = instructionSize.height + statusSize.height + 6 + 24
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        wantsLayer = true
-        GlassChrome.installBackdrop(in: self, radius: .large)
-
-        instruction.frame = NSRect(
-            x: 16, y: 12 + statusSize.height + 6,
-            width: width - 32, height: instructionSize.height
-        )
-        status.frame = NSRect(
-            x: 16, y: 12, width: width - 32, height: statusSize.height
-        )
-        addSubview(instruction)
-        addSubview(status)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class ToolButton: NSView {

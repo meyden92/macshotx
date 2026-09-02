@@ -31,7 +31,7 @@ private func makeHostedView(width: Int = 200, height: Int = 200) -> (RegionPicke
         backing: .buffered,
         defer: false
     )
-    let view = RegionPickerView(frame: frame, image: makeSourceImage(width: width, height: height), scale: 1.0)
+    let view = RegionPickerView(frame: frame, image: makeSourceImage(width: width, height: height), scale: 1.0, requiresSelection: false)
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)

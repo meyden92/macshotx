@@ -26,7 +26,7 @@ private func makeHostedView() -> (RegionPickerView, NSWindow) {
     let window = NSWindow(
         contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false
     )
-    let view = RegionPickerView(frame: frame, image: makeSourceImage(), scale: 1.0)
+    let view = RegionPickerView(frame: frame, image: makeSourceImage(), scale: 1.0, requiresSelection: false)
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)
@@ -105,8 +105,8 @@ private func undoKey(_ view: RegionPickerView, _ window: NSWindow) {
 }
 
 /// Two black fill rects — A at (30,30)–(50,50), B at (70,70)–(90,90) — and a
-/// committed Selection covering (10,10)–(150,150). The marquee only exists
-/// inside a committed Selection, so it has to be there before the drag.
+/// committed Selection covering (10,10)–(150,150), which is what `bake` crops
+/// to.
 @MainActor
 private func makeSceneWithTwoRects() -> (RegionPickerView, NSWindow) {
     let (view, window) = makeHostedView()
@@ -310,6 +310,36 @@ func theFloatingDeleteAffordanceRemovesTheSetAndOnlyExistsForOne() {
 /// The combined outline of the two rects is (27,27)–(93,93); the affordance sits
 /// just off its top-right corner.
 private let affordanceCenter = CGPoint(x: 108, y: 12)
+
+// MARK: - Marquee with no Selection (#62)
+
+@MainActor
+@Test
+func aMarqueeSelectsAnnotationsBeforeAnySelectionExists() {
+    let (view, window) = makeHostedView()
+    view.keyDown(with: keyEvent("f", keyCode: 3, window: window))
+    drag(in: view, window: window, from: CGPoint(x: 30, y: 30), to: CGPoint(x: 50, y: 50))
+    drag(in: view, window: window, from: CGPoint(x: 70, y: 70), to: CGPoint(x: 90, y: 90))
+    view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
+    pressEscape(view, window)
+
+    // Command-drag across both with no Selection in existence, then delete.
+    marqueeBothRects(view, window)
+    pressDelete(view, window)
+    #expect(view.annotations.isEmpty, "Both marks joined the set and went together")
+}
+
+@MainActor
+@Test
+func aMarqueeInsideTheSelectionLeavesTheSelectionWhereItWas() {
+    let (view, window) = makeSceneWithTwoRects()
+    marqueeBothRects(view, window)
+    guard let baked = bake(view, window) else {
+        Issue.record("No baked image produced")
+        return
+    }
+    #expect(baked.width == 140 && baked.height == 140, "The Selection was neither moved nor cleared")
+}
 
 // MARK: - Moving the Selection the marquee shares an interior with
 

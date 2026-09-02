@@ -9,13 +9,14 @@ product specification.
 
 ## Features
 
-- **One capture overlay** — the screen freezes on every display, and you drag a
-  selection, press `F` for the whole display, or Tab to snap to a window. All
-  three land on the same adjustable selection with the annotation tools up:
-  arrows, shapes, text, callouts, step markers, blur/pixelate/solid redactions,
-  drawn before or after you pick the area. Confirming is what captures.
-  Undo/redo, per-annotation move/resize, per-tool styles that persist across
-  sessions.
+- **One capture overlay, annotate first** — the screen freezes on every
+  display with the annotation tools already live: arrows, shapes, text,
+  callouts, step markers, blur/pixelate/solid redactions, anywhere on the
+  screen. Then click a window (highlighted as you hover; Tab turns snap off)
+  or empty space, drag a region, or press Return for the whole display — every
+  one of them captures immediately.
+  Whatever falls outside the crop is clipped away. Undo/redo, per-annotation
+  move/resize, per-tool styles that persist across sessions.
 - **Post-capture editor** with the same toolset plus rectangular crop.
 - **Pipeline automation** — one ordered action list runs after every capture:
   open in editor, copy image, save to disk, upload, copy URL, run shell

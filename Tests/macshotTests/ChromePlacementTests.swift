@@ -107,3 +107,26 @@ func placementIsDeterministic() {
     )
     #expect(first == second)
 }
+
+// MARK: - No Selection yet (annotate-first, ADR 0013)
+
+@Test
+func withNoSelectionTheStripSitsAtTheBottomAndNothingElseIsPlaced() {
+    let placed = ChromePlacement.solve(
+        bounds: display, safeAreaTop: 30, selection: nil,
+        boxes: .init(toolStrip: strip, resolutionBox: box, hint: hint)
+    )
+    #expect(placed.toolStrip == CGRect(x: 300, y: 912, width: 400, height: 80),
+            "Centred, 8pt above the bottom edge")
+    #expect(placed.resolutionBox == nil, "The box has no Selection to ride beside")
+    #expect(placed.hint == nil, "and there is no Selection to hint about")
+}
+
+@Test
+func withNoSelectionTheStripStillClearsTheSafeAreaOnAShortDisplay() {
+    let short = CGRect(x: 0, y: 0, width: 1000, height: 100)
+    let placed = ChromePlacement.solve(
+        bounds: short, safeAreaTop: 40, selection: nil, boxes: .init(toolStrip: strip)
+    )
+    #expect(placed.toolStrip?.minY == 40, "Clamped down out of the safe area rather than off it")
+}

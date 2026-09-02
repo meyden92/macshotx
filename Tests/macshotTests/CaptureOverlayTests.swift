@@ -27,40 +27,53 @@ func clearingSelectionOnlyAffectsTheOwner() {
 }
 
 @Test
-func seedingIsRefusedWhileAnotherDisplayOwnsTheSelection() {
+func aCaptureIsRefusedOnADisplayThatDoesNotOwnTheSelection() {
+    // A click capture is a single event and can be a slip; it must not
+    // discard the Selection another display holds with the work drawn on it.
     var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
-    #expect(model.canSeed(on: 0))
-    #expect(model.canSeed(on: 1))
+    _ = model.imageArrived(on: 0)
+    _ = model.imageArrived(on: 1)
     _ = model.startSelection(on: 0)
-    // The owner may re-seed itself; the other display may not take over.
-    #expect(model.canSeed(on: 0))
-    #expect(!model.canSeed(on: 1))
+    #expect(model.requestCommit(on: 1, rect: unitRect) == .ignored)
+    #expect(model.resolution == .pending)
+
+    // Once the owner lets go, any display may capture.
     model.clearSelection(on: 0)
-    #expect(model.canSeed(on: 1))
+    #expect(model.requestCommit(on: 1, rect: unitRect) == .perform)
+}
+
+@Test
+func aClickCaptureOnTheOwningDisplayBeforeItsImageIsHeld() {
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
+    _ = model.startSelection(on: 1)
+    #expect(model.requestCommit(on: 1, rect: unitRect) == .held)
+    #expect(model.imageArrived(on: 1) == CaptureSessionModel.HeldCommit(display: 1, rect: unitRect))
 }
 
 // MARK: - Session model: snap toggling
 
 @Test
-func tabTogglesSnapOnlyWhileNoSelectionExists() {
+func aSessionStartsWithWindowSnapArmed() {
+    // Pointing at a window and clicking must not need a Tab first (ADR 0014).
+    let model = CaptureSessionModel(displayCount: 2)
+    #expect(model.snapArmed)
+}
+
+@Test
+func tabTogglesSnapWhetherOrNotASelectionExists() {
+    // "No Selection" is the normal working state now, not a transient one, and
+    // a Selection only hides the highlight; it does not lock the mode.
     var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     var changed = model.toggleSnap()
     #expect(changed)
     #expect(model.snapArmed)
-    changed = model.toggleSnap()
-    #expect(changed)
-    #expect(!model.snapArmed)
-
     _ = model.startSelection(on: 0)
     changed = model.toggleSnap()
-    #expect(!changed)
-    #expect(!model.snapArmed)
-
-    // Selection cleared: Tab works again.
-    model.clearSelection(on: 0)
-    changed = model.toggleSnap()
     #expect(changed)
-    #expect(model.snapArmed)
+    #expect(!model.snapArmed)
+    model.cancel()
+    changed = model.toggleSnap()
+    #expect(!changed, "Nothing toggles after the session resolves")
 }
 
 // MARK: - Session model: pending images, held commits
@@ -149,40 +162,6 @@ func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() thro
     """
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(legacy.utf8))
     #expect(config.hotkeys == HotkeySettings())
-}
-
-// MARK: - Helper card content
-
-@Test
-func helperCardWordingFollowsTheSnapState() throws {
-    let on = try #require(HelperCard.content(snapArmed: true, suppressed: false))
-    let off = try #require(HelperCard.content(snapArmed: false, suppressed: false))
-    #expect(on.instruction != off.instruction)
-    #expect(on.instruction.contains("window"))
-    #expect(on.instruction.contains("F for fullscreen"))
-    #expect(off.instruction.contains("F for fullscreen"))
-    #expect(on.status == "Window snap: ON (Tab)")
-    #expect(off.status == "Window snap: OFF (Tab)")
-}
-
-@Test
-func helperCardNamesEveryRouteAndPromisesNoCapture() throws {
-    // Every route seeds the Selection now, so a card claiming that a click
-    // captures would be a lie (ADR 0011).
-    for armed in [true, false] {
-        let card = try #require(HelperCard.content(snapArmed: armed, suppressed: false))
-        let text = card.instruction + " " + card.status
-        #expect(text.contains("drag") || text.contains("Drag"))
-        #expect(text.contains("F for fullscreen"))
-        #expect(text.lowercased().contains("window"))
-        #expect(!card.instruction.lowercased().contains("captur"))
-    }
-}
-
-@Test
-func suppressedHelperCardProducesNothing() {
-    #expect(HelperCard.content(snapArmed: true, suppressed: true) == nil)
-    #expect(HelperCard.content(snapArmed: false, suppressed: true) == nil)
 }
 
 // MARK: - Settings round-trip for the suppression flag

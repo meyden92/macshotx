@@ -236,6 +236,38 @@ enum PostProcessingCompositor {
         )
     }
 
+    /// Where a composed canvas is drawn on the display it is previewed on, in
+    /// that display's points. Anchored so the capture content stays at 1:1
+    /// exactly where it is when the padded canvas fits inside `bounds`;
+    /// otherwise shrunk uniformly and centred, 24pt clear of the edges.
+    /// Beautify pads outward, so a whole-display capture never fits at 1:1 —
+    /// the preview scales, the bake never does (ADR 0007 as amended by ADR
+    /// 0013).
+    static func previewPlacement(
+        of layout: CompositionLayout, capture: CGRect, in bounds: CGRect
+    ) -> CGRect {
+        let margin: CGFloat = 24
+        let anchored = CGRect(
+            x: capture.minX - layout.content.minX,
+            y: capture.minY - layout.content.minY,
+            width: layout.canvas.width, height: layout.canvas.height
+        )
+        if bounds.contains(anchored) { return anchored }
+        let factor = min(
+            1,
+            min(
+                (bounds.width - margin * 2) / layout.canvas.width,
+                (bounds.height - margin * 2) / layout.canvas.height
+            )
+        )
+        let size = CGSize(width: layout.canvas.width * factor, height: layout.canvas.height * factor)
+        return CGRect(
+            x: bounds.minX + (bounds.width - size.width) / 2,
+            y: bounds.minY + (bounds.height - size.height) / 2,
+            width: size.width, height: size.height
+        )
+    }
+
     /// A radius can never round more than half the shorter side without turning
     /// the capture into a blob.
     static func clampedRadius(_ radius: CGFloat, for size: CGSize) -> CGFloat {

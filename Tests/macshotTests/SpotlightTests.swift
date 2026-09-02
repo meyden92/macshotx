@@ -79,7 +79,7 @@ private func makeHostedView(
     )
     let view = RegionPickerView(
         frame: frame, image: ctx.makeImage()!, scale: 1.0,
-        styles: styles, onStylesChanged: onStylesChanged
+        styles: styles, onStylesChanged: onStylesChanged, requiresSelection: false
     )
     window.contentView = view
     window.makeFirstResponder(view)

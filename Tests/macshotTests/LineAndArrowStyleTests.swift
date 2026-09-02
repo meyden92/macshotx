@@ -111,7 +111,7 @@ private func makeHostedView() -> (RegionPickerView, NSWindow) {
     let window = NSWindow(
         contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false
     )
-    let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1.0)
+    let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1.0, requiresSelection: false)
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)

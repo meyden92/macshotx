@@ -2,6 +2,8 @@
 
 > **Amended by #8 (2026-08-13).** Background removal was dropped from the app, and with it the alpha-safe output format: nothing can produce transparency any more, so the artifact no longer carries a may-contain-transparency flag. Everything below still holds for beautify and image effects.
 
+> **Amended by ADR 0013 (2026-09-02).** Post-processing is no longer gated on a live Selection. Under annotate-first there is a long stretch of the capture with no Selection at all, so the panel opens at any time and previews against the whole display — scaled down, because beautify pads *outward* and a padded full display does not fit on the display it is drawn on. A click capture (ADR 0014) therefore carries whatever look was configured into the commit without ever having previewed the real crop. This weakens, but does not abandon, the premise below: these decisions are still made in the overlay while the capture is live, which is what the rejected options failed at.
+
 Beautify (backdrop, padding, corner radius, shadow, window frame), image effects (brightness, contrast, saturation, sharpness) and background removal are capture-overlay state, previewed live over the frozen screen and composited once when the capture is confirmed. The Pipeline's contract is unchanged: it receives one finished image and runs the configured actions on it. There is no new `Pipeline action`, no new per-mode override, and no Settings switch that turns any of it on.
 
 ## Considered Options

@@ -101,7 +101,7 @@ private func makeBlockView(scale: CGFloat = 1) -> (RegionPickerView, NSWindow) {
     let window = NSWindow(
         contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false
     )
-    let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: scale)
+    let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: scale, requiresSelection: false)
     window.contentView = view
     window.makeFirstResponder(view)
     return (view, window)

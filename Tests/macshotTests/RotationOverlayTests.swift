@@ -37,7 +37,8 @@ private func makeHostedView(scale: CGFloat = 1.0) -> (RegionPickerView, NSWindow
     let view = RegionPickerView(
         frame: frame,
         image: makeSourceImage(width: pixels, height: pixels),
-        scale: scale
+        scale: scale,
+        requiresSelection: false
     )
     window.contentView = view
     window.makeFirstResponder(view)
