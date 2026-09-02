@@ -23,6 +23,8 @@ enum SelectGesture {
         /// outline.
         var insideSelectedSet = false
         var hitsAnnotation = false
+        /// The annotation under the point is in the selected set.
+        var hitsSelectedAnnotation = false
         var hasSelectedSet = false
         var isEditingText = false
         var snapArmed = false
@@ -68,15 +70,18 @@ enum SelectGesture {
     }
 
     static func drag(_ f: Facts) -> DragOutcome {
-        // Grabbing a placed element belongs to the select tool; Command grabs
-        // without switching tools, so a drawing tool can still draw on top of
-        // an existing element.
+        // Click selects, drag draws, and what is already selected drags with
+        // any tool: that is how an element is edited without switching tools
+        // while a drag from an unselected element still draws on top of it.
+        // Shift is reserved for changing who is in the set.
+        if f.onSelectedHandle { return .manipulateSelected }
+        if !f.shiftHeld, f.insideSelectedSet { return .manipulateSelected }
+        if !f.shiftHeld, f.hitsSelectedAnnotation { return .grabAnnotation }
+        // Grabbing an unselected element belongs to the select tool; Command
+        // grabs without switching tools.
         let manipulates = f.tool == .select || f.commandHeld
-        if manipulates {
-            if f.onSelectedHandle { return .manipulateSelected }
-            // Shift is reserved for changing who is in the set.
-            if !f.shiftHeld, f.insideSelectedSet { return .manipulateSelected }
-            if f.hitsAnnotation { return f.shiftHeld ? .toggleMembership : .grabAnnotation }
+        if manipulates, f.hitsAnnotation {
+            return f.shiftHeld ? .toggleMembership : .grabAnnotation
         }
         guard f.tool == .select else { return .draw }
         if f.hasSelection, let handle = f.selectionHandle { return .resizeSelection(handle) }

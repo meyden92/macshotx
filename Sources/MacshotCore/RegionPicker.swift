@@ -136,6 +136,10 @@ final class RegionPickerView: NSView {
     /// The selected set, in z-order. Single selection is its one-element case;
     /// there is no separate code path for it.
     private var selectedIDs: [AnnotationDocument.ID] = []
+    /// The element that stays selected because it was just drawn, as opposed
+    /// to one the user picked. A drag inside it still draws (a smaller shape
+    /// inside a redact box); only a picked element drags with a drawing tool.
+    private var justPlacedID: AnnotationDocument.ID?
     /// Handles, the rotation knob and the options row address exactly one
     /// annotation — a set of several has no single box to resize and no single
     /// style to show — so they go through this rather than the set.
@@ -328,7 +332,9 @@ final class RegionPickerView: NSView {
         }
         facts.insideSelectedSet = selectedIDs.count > 1
             && (selectedSetBounds?.contains(point) ?? false)
-        facts.hitsAnnotation = hitAnnotationID(at: point) != nil
+        let hit = hitAnnotationID(at: point)
+        facts.hitsAnnotation = hit != nil
+        facts.hitsSelectedAnnotation = hit.map { selectedIDs.contains($0) && $0 != justPlacedID } ?? false
         facts.hasSelectedSet = !selectedIDs.isEmpty
         facts.isEditingText = wasEditingText
         facts.snapArmed = snapArmed
@@ -352,6 +358,7 @@ final class RegionPickerView: NSView {
         case .selectAnnotation:
             if let id = hitAnnotationID(at: point) {
                 selectedIDs = [id]
+                justPlacedID = nil
                 refreshToolOptions()
             }
         case .clearSelectedSet:
@@ -828,6 +835,7 @@ final class RegionPickerView: NSView {
         toolbar?.setCurrent(tool)
         draftAnnotation = nil
         dragStart = nil
+        deferredDraw = false
         disarmAutoMeasure()
         clearHoverPreview()
         selectionGesture = nil
@@ -1488,6 +1496,7 @@ final class RegionPickerView: NSView {
     private func clearSelectedSet() {
         let hadSelection = !selectedIDs.isEmpty
         selectedIDs = []
+        justPlacedID = nil
         marquee = nil
         resizingHandle = nil
         movingAnnotation = false
@@ -1710,6 +1719,7 @@ final class RegionPickerView: NSView {
             // moves; a bare click just selects).
             guard let id = hitAnnotationID(at: point) else { return }
             selectedIDs = [id]
+            justPlacedID = nil
             resizingHandle = nil
             movingAnnotation = true
             movingLoupeCircle = document.annotation(for: id).flatMap {
@@ -1739,16 +1749,30 @@ final class RegionPickerView: NSView {
             needsDisplay = true
 
         case .draw:
-            // Empty space under a drawing tool: drop the selected set and run it.
+            // A drawing tool: drop the selected set and run it. Over an
+            // existing element nothing is placed until the hand moves, so a
+            // bare click can pick the element up instead (see mouseUp) while
+            // a drag still draws on top of it.
             clearSelectedSet()
-            if currentTool == .text {
-                dragStart = point
-                startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
+            dragStart = point
+            if facts.hitsAnnotation {
+                deferredDraw = true
             } else {
-                dragStart = point
-                draftAnnotation = makeDraft(at: point)
+                beginDrawing(at: point)
             }
             needsDisplay = true
+        }
+    }
+
+    /// True between a mouse-down on an existing element with a drawing tool
+    /// and the first drag movement, which is what turns it into a drawing.
+    private var deferredDraw = false
+
+    private func beginDrawing(at point: CGPoint) {
+        if currentTool == .text {
+            startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
+        } else {
+            draftAnnotation = makeDraft(at: point)
         }
     }
 
@@ -1785,6 +1809,12 @@ final class RegionPickerView: NSView {
                 beautifyClick = nil
             }
             return
+        }
+        if deferredDraw, let start = dragStart {
+            // The click on an element turned into a drag: it draws on top,
+            // from where it started.
+            deferredDraw = false
+            beginDrawing(at: start)
         }
         // Manipulating a grabbed element wins over whatever the active tool does.
         if rotatingAnnotation, let id = selectedID, let original = manipulationOriginal {
@@ -1870,6 +1900,17 @@ final class RegionPickerView: NSView {
             return
         }
         defer { pendingClick = nil }
+        if deferredDraw {
+            // A click on an element that never dragged: it selects rather
+            // than draws, whatever tool is in hand.
+            deferredDraw = false
+            dragStart = nil
+            if let facts = pendingClick {
+                resolveBareClick(facts, at: convert(event.locationInWindow, from: nil))
+            }
+            needsDisplay = true
+            return
+        }
         if marquee != nil {
             marquee = nil
             needsDisplay = true
@@ -1905,6 +1946,7 @@ final class RegionPickerView: NSView {
             // What was just drawn stays selected, so a tool option changed
             // straight afterwards lands on it instead of only on the next one.
             selectedIDs = [document.insert(settled(draft))]
+            justPlacedID = selectedIDs[0]
             draftAnnotation = nil
             dragStart = nil
             refreshToolOptions()
@@ -1991,17 +2033,20 @@ final class RegionPickerView: NSView {
     /// "draw here" rather than promising a move. Command flips that back, which
     /// is why flagsChanged re-runs this without the pointer having moved.
     private func updateCursor(at point: NSPoint, modifiers: NSEvent.ModifierFlags) {
-        let manipulates = currentTool == .select || modifiers.contains(.command)
-        let overElement: Bool
-        if let id = selectedID, let selected = document.annotation(for: id),
-           AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
-            || AnnotationGeometry.isOnRotationHandle(
-                point, of: selected, handleSize: handleSize
-            ) {
-            overElement = true
-        } else {
-            overElement = hitAnnotationID(at: point) != nil
+        var onSelectedHandle = false
+        if let id = selectedID, let selected = document.annotation(for: id) {
+            onSelectedHandle =
+                AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
+                || AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize)
         }
+        let hit = hitAnnotationID(at: point)
+        // What is already selected drags with any tool, so it reads as
+        // grabbable with any tool.
+        let overSelected = onSelectedHandle
+            || hit.map { selectedIDs.contains($0) && $0 != justPlacedID } ?? false
+            || (selectedIDs.count > 1 && (selectedSetBounds?.contains(point) ?? false))
+        let manipulates = currentTool == .select || modifiers.contains(.command) || overSelected
+        let overElement = onSelectedHandle || hit != nil
         if manipulates, overElement {
             NSCursor.openHand.set()
             return

@@ -359,6 +359,39 @@ func annotationsOutsideTheCapturedRectAreClippedAway() throws {
             "and the one outside it is gone without a trace")
 }
 
+// MARK: - Editing with a drawing tool in hand: click selects, drag draws
+
+@MainActor
+@Test
+func withADrawingToolAClickSelectsAnElementADragDrawsOnTopAndASelectedElementDrags() {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.keyDown(with: key("r", 15, window))
+    drag(from: CGPoint(x: 30, y: 30), to: CGPoint(x: 90, y: 90), view: view, window: window)
+    view.keyDown(with: key("\u{1b}", 53, window))
+
+    // A drag starting on the unselected rectangle draws a new one on top.
+    drag(from: CGPoint(x: 40, y: 40), to: CGPoint(x: 60, y: 60), view: view, window: window)
+    #expect(view.annotations.count == 2)
+    view.keyDown(with: key("\u{1b}", 53, window))
+
+    // A bare click on the big rectangle selects it, placing nothing; Delete
+    // then removes it.
+    click(at: CGPoint(x: 85, y: 85), view: view, window: window)
+    #expect(view.annotations.count == 2, "The click drew nothing")
+    view.keyDown(with: key("\u{7f}", 51, window))
+    #expect(view.annotations.count == 1, "It selected the rectangle under it")
+
+    // Click the small one, then drag it: selected, it moves instead of drawing.
+    click(at: CGPoint(x: 50, y: 50), view: view, window: window)
+    drag(from: CGPoint(x: 50, y: 50), to: CGPoint(x: 100, y: 100), view: view, window: window)
+    #expect(view.annotations.count == 1, "The drag moved it rather than drawing")
+    if case let .rectangle(rect, _) = view.annotations[0] {
+        #expect(rect.origin == CGPoint(x: 90, y: 90), "moved by the drag delta")
+    } else {
+        Issue.record("Expected the rectangle")
+    }
+}
+
 // MARK: - Tools live from the first frame (#59, ADR 0013)
 
 @MainActor

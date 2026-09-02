@@ -24,6 +24,20 @@ func aDrawingToolClaimsTheDragEvenOverAnAnnotationOrInsideTheSelection() {
 }
 
 @Test
+func whatIsAlreadySelectedDragsWithAnyTool() {
+    // Click selects, drag draws — but a drag from a selected element edits it.
+    let selected = facts { $0.tool = .rectangle; $0.hitsAnnotation = true; $0.hitsSelectedAnnotation = true }
+    #expect(SelectGesture.drag(selected) == .grabAnnotation)
+    let handle = facts { $0.tool = .stepMarker; $0.onSelectedHandle = true }
+    #expect(SelectGesture.drag(handle) == .manipulateSelected)
+    let set = facts { $0.tool = .arrow; $0.insideSelectedSet = true }
+    #expect(SelectGesture.drag(set) == .manipulateSelected)
+    // Shift over a selected element is not a grab: the drawing tool draws.
+    let shifted = facts { $0.tool = .arrow; $0.hitsAnnotation = true; $0.hitsSelectedAnnotation = true; $0.shiftHeld = true }
+    #expect(SelectGesture.drag(shifted) == .draw)
+}
+
+@Test
 func commandLetsADrawingToolGrabAnAnnotationWithoutSwitchingTools() {
     let f = facts { $0.tool = .arrow; $0.commandHeld = true; $0.hitsAnnotation = true }
     #expect(SelectGesture.drag(f) == .grabAnnotation)
