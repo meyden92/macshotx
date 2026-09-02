@@ -38,6 +38,26 @@ enum WindowSnapResolver {
         return kept
     }
 
+    /// Hit-tests a pointer on one display against an already-eligible list.
+    /// `localPoint` is in that display's overlay view space (top-left origin,
+    /// points) and `displayFrame` is the display's global Quartz frame, so the
+    /// mapping never depends on the overlay window's position or on which
+    /// display is primary. The winning frame comes back in the same view
+    /// space, ready to draw.
+    static func target(
+        in eligible: [WindowCandidate],
+        displayFrame: CGRect,
+        localPoint: CGPoint
+    ) -> (candidate: WindowCandidate, rect: CGRect)? {
+        let quartzPoint = CGPoint(
+            x: displayFrame.minX + localPoint.x, y: displayFrame.minY + localPoint.y
+        )
+        guard let candidate = eligible.first(where: { $0.frame.contains(quartzPoint) })
+        else { return nil }
+        let local = candidate.frame.offsetBy(dx: -displayFrame.minX, dy: -displayFrame.minY)
+        return (candidate, local)
+    }
+
     /// The first eligible window in z-order whose frame contains the point
     /// wins. The list is front-to-back, so "first" means "topmost"; exactly
     /// overlapping frames resolve to the front one.
