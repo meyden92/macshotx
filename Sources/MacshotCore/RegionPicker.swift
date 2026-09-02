@@ -25,8 +25,8 @@ final class RegionPickerView: NSView {
     /// A click with no drag on a snap-highlighted window; the session seeds the
     /// Selection to that window.
     var onSnapClick: ((WindowCandidate) -> Void)?
-    /// Resolve the snap target for a pointer position (Cocoa global
-    /// coordinates); returns the candidate plus its rect in this view's space.
+    /// Resolve the snap target for a pointer position in this view's own
+    /// space; returns the candidate plus its rect in that same space.
     var onSnapHover: ((NSPoint) -> (candidate: WindowCandidate, rect: NSRect)?)?
     /// The pointer moved over this overlay — the session keys its window.
     var onPointerMoved: (() -> Void)?
@@ -346,9 +346,8 @@ final class RegionPickerView: NSView {
             // Re-resolve at the click itself rather than trusting the hover
             // highlight — the pointer may not have moved since the window
             // list arrived, and snap clicks only exist before a selection.
-            guard selection == nil, let onSnapHover, let window else { return }
-            let global = window.convertPoint(toScreen: event.locationInWindow)
-            if let (candidate, _) = onSnapHover(global) {
+            guard selection == nil, let onSnapHover else { return }
+            if let (candidate, _) = onSnapHover(convert(event.locationInWindow, from: nil)) {
                 onSnapClick?(candidate)
             }
             return
@@ -1965,9 +1964,7 @@ final class RegionPickerView: NSView {
         guard snapArmed, let onSnapHover,
               selection == nil, selectionGesture == nil
         else { return }
-        guard let window else { return }
-        let global = window.convertPoint(toScreen: point)
-        let next = onSnapHover(global)
+        let next = onSnapHover(convert(point, from: nil))
         if next?.candidate.id != snapHighlight?.candidate.id
             || next?.rect != snapHighlight?.rect {
             snapHighlight = next
