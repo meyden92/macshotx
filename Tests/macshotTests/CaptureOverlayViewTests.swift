@@ -373,3 +373,36 @@ func theSessionCanHideTheStripOnDisplaysTheCursorIsNotOn() {
     view.setToolStripVisible(true)
     #expect(toolbar?.isHidden == false)
 }
+
+// MARK: - Window snap highlight follows the select tool (#61)
+
+/// The overlay's own paint at `point`, chrome hidden: (red, blue) so a blue
+/// window highlight over the grey screen reads as blue > red.
+@MainActor
+private func paint(_ view: RegionPickerView, at point: CGPoint) throws -> (red: Int, blue: Int) {
+    let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplayWithoutChrome(to: rep)
+    let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+    let color = try #require(rep.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
+    return (Int((color.redComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
+}
+
+@MainActor
+@Test
+func theHighlightDrawsOnlyWhileTheSelectToolIsActiveAndComesBackWithoutMovingTheMouse() throws {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.onSnapHover = { _ in (someWindow, NSRect(x: 20, y: 20, width: 160, height: 160)) }
+    view.setSnapArmed(true)
+    view.mouseMoved(with: mouse(.mouseMoved, at: CGPoint(x: 100, y: 100), view: view, window: window))
+
+    let armed = try paint(view, at: CGPoint(x: 100, y: 100))
+    #expect(armed.blue > armed.red + 10, "The window under the pointer is highlighted")
+
+    view.keyDown(with: key("r", 15, window))
+    let drawing = try paint(view, at: CGPoint(x: 100, y: 100))
+    #expect(drawing.blue == drawing.red, "A drawing tool in hand draws no highlight")
+
+    view.keyDown(with: key("s", 1, window))
+    let back = try paint(view, at: CGPoint(x: 100, y: 100))
+    #expect(back.blue > back.red + 10, "Back on the select tool the highlight returns, unprompted")
+}

@@ -28,7 +28,10 @@ struct CaptureSessionModel: Equatable {
     private(set) var heldCommit: HeldCommit?
     private(set) var resolution: Resolution = .pending
 
-    init(displayCount: Int, snapArmed: Bool) {
+    /// Window snap starts armed on every capture (ADR 0014): pointing at a
+    /// window and clicking is the most common capture, and it must not need a
+    /// `Tab` first.
+    init(displayCount: Int, snapArmed: Bool = true) {
         self.snapArmed = snapArmed
         self.imageReady = Array(repeating: false, count: displayCount)
     }

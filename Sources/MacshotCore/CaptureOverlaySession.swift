@@ -73,9 +73,9 @@ final class CaptureOverlaySession {
     private init() {
         let screens = NSScreen.screens
         self.screens = screens
-        // The overlay always starts with snap off: nothing about the capture is
-        // decided before it is on screen (ADR 0010).
-        self.model = CaptureSessionModel(displayCount: screens.count, snapArmed: false)
+        // Snap starts armed (ADR 0014, reversing ADR 0010's consequence); the
+        // model carries that default so it is pinned by its own tests.
+        self.model = CaptureSessionModel(displayCount: screens.count)
     }
 
     private func run() async -> Outcome {

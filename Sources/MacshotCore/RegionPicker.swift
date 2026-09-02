@@ -830,6 +830,15 @@ final class RegionPickerView: NSView {
         clearSelection()
         refreshToolOptions()
         layoutChrome()
+        // The window highlight belongs to the select tool: it goes with a
+        // drawing tool and comes back, for the pointer's current position,
+        // with the select tool — the pointer may not move again before the
+        // click.
+        if tool == .select {
+            refreshSnapHighlightNow()
+        } else {
+            snapHighlight = nil
+        }
         needsDisplay = true
         // Switching tools kills an in-flight gesture; tell the session so a
         // claimed-but-never-committed selection doesn't stay latched.
@@ -1954,10 +1963,12 @@ final class RegionPickerView: NSView {
         NSCursor.crosshair.set()
     }
 
-    /// With snap armed and no selection in progress, the topmost window under
-    /// the pointer highlights; the session resolves who that is.
+    /// With snap armed, the select tool active and no selection in progress,
+    /// the topmost window under the pointer highlights; the session resolves
+    /// who that is. A drawing tool in hand means the highlight must not chase
+    /// the cursor across the screen (ADR 0014).
     private func updateSnapHighlight(atWindowPoint point: NSPoint) {
-        guard snapArmed, let onSnapHover,
+        guard snapArmed, currentTool == .select, let onSnapHover,
               selection == nil, selectionGesture == nil
         else { return }
         let next = onSnapHover(convert(point, from: nil))
@@ -2787,7 +2798,7 @@ final class RegionPickerView: NSView {
 
         // The highlight hides the moment a selection gesture begins, but the
         // state survives so a click-no-drag can still capture the window.
-        if snapArmed, selection == nil, liveSelectionRect == nil,
+        if snapArmed, currentTool == .select, selection == nil, liveSelectionRect == nil,
            selectionGesture == nil, let (_, rect) = snapHighlight {
             NSColor.systemBlue.withAlphaComponent(0.18).setFill()
             rect.fill()

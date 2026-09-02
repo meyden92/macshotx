@@ -53,6 +53,13 @@ func aClickCaptureOnTheOwningDisplayBeforeItsImageIsHeld() {
 // MARK: - Session model: snap toggling
 
 @Test
+func aSessionStartsWithWindowSnapArmed() {
+    // Pointing at a window and clicking must not need a Tab first (ADR 0014).
+    let model = CaptureSessionModel(displayCount: 2)
+    #expect(model.snapArmed)
+}
+
+@Test
 func tabTogglesSnapWhetherOrNotASelectionExists() {
     // "No Selection" is the normal working state now, not a transient one, and
     // a Selection only hides the highlight; it does not lock the mode.
