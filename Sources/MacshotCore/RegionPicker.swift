@@ -336,23 +336,67 @@ final class RegionPickerView: NSView {
 
     private var suppressToolBroadcast = false
 
-    /// A click that neither dragged nor did anything tool-meaningful. With
-    /// snap armed it seeds the Selection from the window under the click; with
-    /// snap off, an idle overlay seeds it to the whole display (select tool
-    /// only — a misclick with a drawing tool must not seed anything).
-    private func handleBareClick(with event: NSEvent, allowsDisplaySeeding: Bool) {
-        guard requiresSelection else { return }
-        if snapArmed {
-            // Re-resolve at the click itself rather than trusting the hover
-            // highlight — the pointer may not have moved since the window
-            // list arrived, and snap clicks only exist before a selection.
-            guard selection == nil, let onSnapHover else { return }
-            if let (candidate, _) = onSnapHover(convert(event.locationInWindow, from: nil)) {
-                onSnapClick?(candidate)
-            }
-            return
+    /// The facts of a mouse-down, snapshotted before the drag ladder mutates
+    /// anything, so a click that turns out to have never dragged is judged
+    /// against the state it was made in.
+    private var pendingClick: SelectGesture.Facts?
+
+    /// Everything the gesture seam decides on, read off the view at `point`.
+    /// `wasEditingText` is captured by the caller before the click commits the
+    /// open editor.
+    private func gestureFacts(
+        at point: CGPoint, event: NSEvent, wasEditingText: Bool
+    ) -> SelectGesture.Facts {
+        var facts = SelectGesture.Facts()
+        facts.tool = currentTool
+        facts.commandHeld = event.modifierFlags.contains(.command)
+        facts.shiftHeld = event.modifierFlags.contains(.shift)
+        if let id = selectedID, let selected = document.annotation(for: id) {
+            facts.onSelectedHandle =
+                AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize)
+                || AnnotationGeometry.handle(at: point, on: selected, handleSize: handleSize) != nil
         }
-        if allowsDisplaySeeding, isIdle { onIdleClick?() }
+        facts.insideSelectedSet = selectedIDs.count > 1
+            && (selectedSetBounds?.contains(point) ?? false)
+        facts.hitsAnnotation = hitAnnotationID(at: point) != nil
+        facts.hasSelectedSet = !selectedIDs.isEmpty
+        facts.isEditingText = wasEditingText
+        facts.snapArmed = snapArmed
+        // Resolved at the click itself rather than off the hover highlight —
+        // the pointer may not have moved since the window list arrived.
+        facts.windowUnderCursor = onSnapHover?(point) != nil
+        if let existing = selection {
+            facts.hasSelection = true
+            facts.insideSelection = existing.contains(point)
+            facts.selectionHandle = AnnotationGeometry.rectHandle(
+                at: point, in: existing, handleSize: handleSize
+            )
+        }
+        facts.isIdle = isIdle
+        return facts
+    }
+
+    /// A click that neither dragged nor did anything tool-meaningful, judged
+    /// by the click ladder against the facts its mouse-down recorded.
+    private func resolveBareClick(with event: NSEvent) {
+        guard let facts = pendingClick else { return }
+        pendingClick = nil
+        let point = convert(event.locationInWindow, from: nil)
+        switch SelectGesture.click(facts) {
+        case .selectAnnotation:
+            if let id = hitAnnotationID(at: point) {
+                selectedIDs = [id]
+                refreshToolOptions()
+            }
+        case .seedWindow:
+            // Snap clicks only exist before a Selection.
+            guard selection == nil, let (candidate, _) = onSnapHover?(point) else { return }
+            onSnapClick?(candidate)
+        case .seedDisplay:
+            onIdleClick?()
+        case .nothing:
+            break
+        }
     }
 
     // MARK: Idle helper card
@@ -1590,7 +1634,9 @@ final class RegionPickerView: NSView {
         // A click on the overlay itself is a click outside the picker and
         // outside any open editor; both would have swallowed their own.
         closeColorPicker()
+        let wasEditingText = editingTextField != nil
         commitTextEditing()
+        pendingClick = nil
 
         // A click while auto-measure is armed commits what the preview showed,
         // and stays armed: the key is still held, so the user can sweep on and
@@ -1639,15 +1685,79 @@ final class RegionPickerView: NSView {
             return
         }
 
-        // Grabbing a placed element belongs to the select tool. While a drawing
-        // tool is active the drag has to draw instead, or there is no way to
-        // put a new element on top of an existing one — a smaller rectangle
-        // inside a redact box, a label over an arrow. Command grabs without
-        // switching tools, and a bare click still selects (see mouseUp).
-        let manipulates = currentTool == .select
-            || event.modifierFlags.contains(.command)
+        // Everything else is the gesture seam's call: the facts are read once,
+        // the drag ladder primes what the drag will do, and the click ladder
+        // is consulted at mouse-up if it never dragged.
+        let facts = gestureFacts(at: point, event: event, wasEditingText: wasEditingText)
+        pendingClick = facts
 
-        if manipulates, let id = selectedID, let selected = document.annotation(for: id) {
+        switch SelectGesture.drag(facts) {
+        case .manipulateSelected:
+            beginSelectedManipulation(at: point)
+
+        case .toggleMembership:
+            // Shift-click fixes up a marquee that caught one item too many.
+            guard let id = hitAnnotationID(at: point) else { return }
+            if let existing = selectedIDs.firstIndex(of: id) {
+                selectedIDs.remove(at: existing)
+            } else {
+                selectedIDs.append(id)
+            }
+            refreshToolOptions()
+            needsDisplay = true
+
+        case .grabAnnotation:
+            // Body hit. Prime a move drag (only kicks in once the mouse actually
+            // moves; a bare click just selects).
+            guard let id = hitAnnotationID(at: point) else { return }
+            selectedIDs = [id]
+            resizingHandle = nil
+            movingAnnotation = true
+            movingLoupeCircle = document.annotation(for: id).flatMap {
+                AnnotationGeometry.loupeCircle(of: $0, at: point)
+            }
+            beginManipulation(at: point, of: [id])
+            refreshToolOptions()
+
+        case .resizeSelection(let handle):
+            guard let existing = selection else { return }
+            beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
+
+        case .marquee:
+            clearSelection()
+            marquee = (origin: point, current: point)
+            needsDisplay = true
+
+        case .moveSelection:
+            guard let existing = selection else { return }
+            beginSelectionGesture(.moving(original: existing, grab: point), at: point, with: event)
+
+        case .drawSelection:
+            // Empty space: drop the selected set and start a fresh Selection.
+            clearSelection()
+            selection = nil
+            beginSelectionGesture(.drawing(origin: point), at: point, with: event)
+            needsDisplay = true
+
+        case .draw:
+            // Empty space under a drawing tool: drop the selected set and run it.
+            clearSelection()
+            if currentTool == .text {
+                dragStart = point
+                startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
+            } else {
+                dragStart = point
+                draftAnnotation = makeDraft(at: point)
+            }
+            needsDisplay = true
+        }
+    }
+
+    /// A drag from what is already selected: the single selected annotation's
+    /// rotation knob or resize handle, or the combined outline of a set of
+    /// several, which moves as one unit.
+    private func beginSelectedManipulation(at point: CGPoint) {
+        if let id = selectedID, let selected = document.annotation(for: id) {
             // The rotation handle floats clear of the box, so it is checked
             // first only to keep the two grabs from ever competing.
             if AnnotationGeometry.isOnRotationHandle(point, of: selected, handleSize: handleSize) {
@@ -1663,79 +1773,8 @@ final class RegionPickerView: NSView {
                 return
             }
         }
-
-        let shift = event.modifierFlags.contains(.shift)
-
-        // A set of several drags as one unit from anywhere inside its combined
-        // outline; Shift is reserved for changing who is in the set.
-        if manipulates, !shift, selectedIDs.count > 1,
-           let bounds = selectedSetBounds, bounds.contains(point) {
-            movingAnnotation = true
-            beginManipulation(at: point, of: selectedIDs)
-            return
-        }
-
-        if manipulates, let id = hitAnnotationID(at: point) {
-            if shift {
-                // Shift-click fixes up a marquee that caught one item too many.
-                if let existing = selectedIDs.firstIndex(of: id) {
-                    selectedIDs.remove(at: existing)
-                } else {
-                    selectedIDs.append(id)
-                }
-                refreshToolOptions()
-                needsDisplay = true
-                return
-            }
-            // Body hit. Prime a move drag (only kicks in once the mouse actually
-            // moves; a bare click just selects).
-            selectedIDs = [id]
-            resizingHandle = nil
-            movingAnnotation = true
-            movingLoupeCircle = document.annotation(for: id).flatMap {
-                AnnotationGeometry.loupeCircle(of: $0, at: point)
-            }
-            beginManipulation(at: point, of: [id])
-            refreshToolOptions()
-            return
-        }
-
-        // With the select tool, an existing Selection resizes via its handles
-        // and moves by a drag anywhere inside it — the gesture every other app
-        // teaches, and the one users reach for first. The annotation marquee
-        // used to own the interior and silently dropped the Selection instead
-        // of moving it; it lives on Command-drag now.
-        if currentTool == .select, let existing = selection {
-            if let handle = AnnotationGeometry.rectHandle(at: point, in: existing, handleSize: handleSize) {
-                beginSelectionGesture(.resizing(handle: handle, original: existing), at: point, with: event)
-                return
-            }
-            if existing.contains(point) {
-                if event.modifierFlags.contains(.command) {
-                    clearSelection()
-                    marquee = (origin: point, current: point)
-                    needsDisplay = true
-                    return
-                }
-                beginSelectionGesture(.moving(original: existing, grab: point), at: point, with: event)
-                return
-            }
-        }
-
-        // Empty space: drop any selection and run the active tool.
-        clearSelection()
-        switch currentTool {
-        case .select:
-            selection = nil
-            beginSelectionGesture(.drawing(origin: point), at: point, with: event)
-        case .text:
-            dragStart = point
-            startTextEditing(in: CGRect(origin: point, size: TextLayout.defaultBoxSize))
-        default:
-            dragStart = point
-            draftAnnotation = makeDraft(at: point)
-        }
-        needsDisplay = true
+        movingAnnotation = true
+        beginManipulation(at: point, of: selectedIDs)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -1806,9 +1845,11 @@ final class RegionPickerView: NSView {
                 at: convert(event.locationInWindow, from: nil),
                 modifiers: event.modifierFlags
             )
-            if wasBareClick { handleBareClick(with: event, allowsDisplaySeeding: true) }
+            if wasBareClick { resolveBareClick(with: event) }
+            pendingClick = nil
             return
         }
+        defer { pendingClick = nil }
         if marquee != nil {
             marquee = nil
             needsDisplay = true
@@ -1854,15 +1895,9 @@ final class RegionPickerView: NSView {
             if discardedToolClick {
                 // Only drags belong to the drawing tool, so a click that drew
                 // nothing can still pick up the element underneath — that is
-                // what keeps elements reachable without a tool switch.
-                if let id = hitAnnotationID(at: convert(event.locationInWindow, from: nil)) {
-                    selectedIDs = [id]
-                    refreshToolOptions()
-                } else {
-                    // A tool click on empty canvas still snap-seeds a Selection
-                    // from the window under it; with snap off it stays a no-op.
-                    handleBareClick(with: event, allowsDisplaySeeding: false)
-                }
+                // what keeps elements reachable without a tool switch. The
+                // click ladder decides that and what an empty click means.
+                resolveBareClick(with: event)
             }
         }
         needsDisplay = true
