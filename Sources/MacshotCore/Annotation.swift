@@ -29,6 +29,7 @@ enum Tool: String, CaseIterable {
     case fillFreehand
     case blur
     case pixelate
+    case magicEraser
 
     var group: ToolGroup {
         switch self {
@@ -37,7 +38,7 @@ enum Tool: String, CaseIterable {
         case .pen, .highlighter, .spotlight: return .drawing
         case .text, .callout: return .text
         case .stepMarker, .measure, .loupe: return .markers
-        case .fillRect, .fillFreehand, .blur, .pixelate: return .redaction
+        case .fillRect, .fillFreehand, .blur, .pixelate, .magicEraser: return .redaction
         }
     }
 
@@ -62,6 +63,7 @@ enum Tool: String, CaseIterable {
         case .fillFreehand: return ""
         case .blur: return "b"
         case .pixelate: return "x"
+        case .magicEraser: return "e"
         }
     }
 
@@ -84,6 +86,7 @@ enum Tool: String, CaseIterable {
         case .fillFreehand: return "scribble.variable"
         case .blur: return "drop.degreesign"
         case .pixelate: return "square.grid.3x3.square"
+        case .magicEraser: return "eraser.fill"
         }
     }
 
@@ -106,6 +109,7 @@ enum Tool: String, CaseIterable {
         case .fillFreehand: return "Freehand redact"
         case .blur: return "Blur"
         case .pixelate: return "Pixelate"
+        case .magicEraser: return "Magic eraser"
         }
     }
 }
@@ -416,7 +420,9 @@ struct AnnotationOptions: OptionSet {
 extension Tool {
     var options: AnnotationOptions {
         switch self {
-        case .select, .blur, .pixelate: return []
+        // No colour well: the magic eraser samples its own colour, and
+        // offering one here would suggest the sample can be pre-empted.
+        case .select, .blur, .pixelate, .magicEraser: return []
         case .pen, .highlighter: return [.color, .lineWidth]
         // No colour: emphasis by subtraction is always black, and the strength
         // is one value for the whole composed layer.

@@ -517,7 +517,8 @@ func eachToolOffersExactlyTheOptionsItsAnnotationsCarry() {
         .fillRect: [.color],
         .fillFreehand: [.color],
         .blur: [],
-        .pixelate: []
+        .pixelate: [],
+        .magicEraser: []
     ]
     for tool in Tool.allCases {
         #expect(tool.options == expected[tool], "Options for \(tool)")
@@ -539,7 +540,7 @@ func theOptionsAToolOffersMatchTheAxesTheStyleActuallyCarries() {
 
 @Test
 func toolsWithNothingToConfigureOfferNoOptionsAtAll() {
-    for tool in [Tool.select, .blur, .pixelate] {
+    for tool in [Tool.select, .blur, .pixelate, .magicEraser] {
         #expect(tool.options.isEmpty, "\(tool) should collapse the options row")
     }
 }

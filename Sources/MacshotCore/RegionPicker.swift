@@ -1257,7 +1257,7 @@ final class RegionPickerView: NSView {
         case .loupe: return loupeStyle.outlineColor
         case .spotlight: return nil
         case .fillRect, .fillFreehand: return fillStyle.color
-        case .select, .blur, .pixelate: return nil
+        case .select, .blur, .pixelate, .magicEraser: return nil
         }
     }
 
@@ -1336,7 +1336,7 @@ final class RegionPickerView: NSView {
             return
         case .fillRect, .fillFreehand:
             fillStyle.color = color
-        case .select, .blur, .pixelate:
+        case .select, .blur, .pixelate, .magicEraser:
             return
         }
         persistStyles()
@@ -2086,6 +2086,22 @@ final class RegionPickerView: NSView {
         }
     }
 
+    /// The frozen capture's colour at a point in view coordinates. Nil until
+    /// the frozen image has arrived, or when the point is off it — the magic
+    /// eraser then falls back to the filled-redact colour.
+    private func sampledColor(at point: CGPoint) -> NSColor? {
+        guard let frozen else { return nil }
+        if scanPixels == nil { scanPixels = PixelBuffer(image: frozen) }
+        guard let pixel = scanPixels?.color(x: Int(point.x * scale), y: Int(point.y * scale))
+        else { return nil }
+        return NSColor(
+            srgbRed: CGFloat(pixel.r) / 255,
+            green: CGFloat(pixel.g) / 255,
+            blue: CGFloat(pixel.b) / 255,
+            alpha: 1
+        )
+    }
+
     private func makeDraft(at point: CGPoint) -> Annotation? {
         let emptyRect = CGRect(origin: point, size: .zero)
         switch currentTool {
@@ -2110,6 +2126,10 @@ final class RegionPickerView: NSView {
         case .loupe: return loupeDraft(source: point, lens: nil)
         case .spotlight: return .spotlight(emptyRect, spotlightStyle)
         case .fillRect: return .fillRect(emptyRect, fillStyle)
+        // A filled redact whose colour came off the pixel under the press, so
+        // it paints the erased region out in its own background.
+        case .magicEraser:
+            return .fillRect(emptyRect, FillStyle(color: sampledColor(at: point) ?? fillStyle.color))
         case .fillFreehand: return .fillFreehand(points: [point], fillStyle)
         case .blur: return .blur(emptyRect)
         case .pixelate: return .pixelate(emptyRect)
@@ -3208,8 +3228,8 @@ final class RegionToolbarView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         // One glass surface for the whole strip — the tool row and the options
-        // row below it — rather than one per button: fifteen tools' worth of
-        // glass would blow both the sampling budget and the visual language.
+        // row below it — rather than one per button: a glass surface per tool
+        // would blow both the sampling budget and the visual language.
         GlassChrome.installBackdrop(in: self, radius: .large)
 
         let buttonRowY: CGFloat = 40

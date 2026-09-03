@@ -49,6 +49,10 @@ _Avoid_: Ruler, dimension tool, measurement line
 An annotation that magnifies: a source circle over the detail, a lens circle showing it enlarged, and a connector between them. Magnification is the ratio of the two radii. Distinct from the colour sampler's live magnifier, which is not an annotation.
 _Avoid_: Magnifier, zoom bubble, callout zoom
 
+**Magic eraser**:
+The tool that samples the frozen capture's pixel under the press and fills the dragged rectangle with exactly that colour, painting a region out in its own background. What it places is an ordinary filled redaction; only the colour's origin is different, and it is fixed at the press rather than resampled as the rectangle is dragged, moved or resized.
+_Avoid_: Clone tool, content-aware fill, healing brush
+
 **Spotlight**:
 An annotation that emphasises by subtraction: its region keeps full brightness while a single composed layer dims everything else. Several spotlights cooperate — every region stays bright and the dim never stacks.
 _Avoid_: Vignette, mask, dim layer, focus region
