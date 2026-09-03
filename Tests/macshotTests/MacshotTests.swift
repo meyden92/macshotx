@@ -47,7 +47,7 @@ func toolListIncludesAllPRDTools() {
     let expected: Set<Tool> = [
         .select, .rectangle, .ellipse, .line, .arrow,
         .pen, .highlighter, .spotlight, .text, .callout, .stepMarker, .measure, .loupe,
-        .fillRect, .fillFreehand, .blur, .pixelate
+        .fillRect, .fillFreehand, .blur, .pixelate, .magicEraser
     ]
     #expect(cases == expected, "Tool.allCases drifted from the expected v1 toolbar")
 }
@@ -62,7 +62,7 @@ func toolGroupingIsConsistent() {
         .text: .text, .callout: .text,
         .stepMarker: .markers, .measure: .markers, .loupe: .markers,
         .fillRect: .redaction, .fillFreehand: .redaction,
-        .blur: .redaction, .pixelate: .redaction
+        .blur: .redaction, .pixelate: .redaction, .magicEraser: .redaction
     ]
     for (tool, expected) in groups {
         #expect(tool.group == expected, "\(tool) group is \(tool.group), expected \(expected)")
@@ -432,7 +432,7 @@ func theToolOptionsRowShowsOnlyApplicableControlsAndCollapsesWhenThereAreNone() 
     #expect(row.frame.width > 0 && row.frame.width < colorAndSlider,
             "Colour alone should be narrower than colour plus a slider")
 
-    for tool in [Tool.select, .blur, .pixelate] {
+    for tool in [Tool.select, .blur, .pixelate, .magicEraser] {
         row.configure(options: tool.options, style: AnnotationStyle())
         #expect(row.frame.width == 0 && row.isHidden,
                 "\(tool) has no options, so the row should take up no room")
