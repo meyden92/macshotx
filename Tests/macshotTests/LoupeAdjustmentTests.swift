@@ -133,6 +133,7 @@ private func makeHostedView(
     )
     window.contentView = view
     window.makeFirstResponder(view)
+    view.selectWholeDisplay()
     return (view, window)
 }
 

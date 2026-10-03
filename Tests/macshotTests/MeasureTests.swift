@@ -137,6 +137,7 @@ private func makeHostedView(scale: CGFloat = 1) -> (RegionPickerView, NSWindow) 
     let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: scale)
     window.contentView = view
     window.makeFirstResponder(view)
+    view.selectWholeDisplay()
     return (view, window)
 }
 
@@ -345,6 +346,7 @@ func theMeasureToolOffersItsColourAndWidthAndKeepsThemForTheNextCapture() throws
         frame: frame, image: nil, scale: 1.0, onStylesChanged: { saved = $0 }
     )
     window.contentView = view
+    view.selectWholeDisplay()
     window.makeFirstResponder(view)
 
     view.keyDown(with: key("m", 46, window))
@@ -357,6 +359,7 @@ func theMeasureToolOffersItsColourAndWidthAndKeepsThemForTheNextCapture() throws
         frame: frame, image: nil, scale: 1.0, styles: try #require(saved)
     )
     window.contentView = reloaded
+    reloaded.selectWholeDisplay()
     reloaded.keyDown(with: key("m", 46, window))
     drag(in: reloaded, window: window, from: CGPoint(x: 40, y: 40), to: CGPoint(x: 120, y: 40))
 

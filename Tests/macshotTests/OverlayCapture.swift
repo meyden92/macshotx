@@ -18,3 +18,19 @@ extension RegionPickerView {
         cacheDisplay(in: bounds, to: rep)
     }
 }
+
+extension RegionPickerView {
+    /// `F` on an idle capture overlay: the whole display becomes the
+    /// Selection. The annotation tools only come up once a Selection exists
+    /// (ADR 0016), so tests that drive them through the capture overlay start
+    /// here. Needs the view hosted in a window.
+    @MainActor
+    func selectWholeDisplay() {
+        keyDown(with: NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window?.windowNumber ?? 0, context: nil,
+            characters: "f", charactersIgnoringModifiers: "f",
+            isARepeat: false, keyCode: 3
+        )!)
+    }
+}

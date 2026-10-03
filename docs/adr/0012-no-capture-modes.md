@@ -1,5 +1,7 @@
 # There are no capture modes; one pipeline runs after every capture
 
+> **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing, so provenance does not reopen on that route; #64 brings it back with Window-mode captures instead.
+
 > **Superseded in part by ADR 0015 (2026-10-03).** "One pipeline runs after every capture" no longer holds: pipelines are named and several can exist, each referenced by id. The capture-mode and provenance half of this record is unaffected by that change.
 
 > **Amended by ADR 0014 (2026-09-02).** One pipeline after every capture still stands, and a dragged Selection is still a plain rectangle with no provenance. What reopened is narrower: a **snap click now captures immediately**, so the window it captured is known at the moment of commit and there is no editable rectangle for provenance to silently fall off — which was the objection below. Provenance is therefore restored for that one route, bringing back the window companion image and honest `%app`/`%window` tokens for snap-click captures. Tracked separately from ADR 0013/0014; it revives a deleted compositor path and is not part of the annotate-first change itself.

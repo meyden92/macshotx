@@ -73,8 +73,8 @@ final class CaptureOverlaySession {
     private init() {
         let screens = NSScreen.screens
         self.screens = screens
-        // Snap starts armed (ADR 0014, reversing ADR 0010's consequence); the
-        // model carries that default so it is pinned by its own tests.
+        // Snap starts armed (ADR 0016); the model carries that default so it is
+        // pinned by its own tests.
         self.model = CaptureSessionModel(displayCount: screens.count)
     }
 
@@ -276,7 +276,6 @@ final class CaptureOverlaySession {
             window.makeFirstResponder(view)
         }
         keyWindowUnderCursor()
-        showToolStrip(on: overlayIndexUnderCursor() ?? 0)
         NSCursor.crosshair.set()
         pushSnapState()
     }
@@ -290,9 +289,6 @@ final class CaptureOverlaySession {
             self?.selectionActivity(on: index, active: active)
         }
         view.onTabPressed = { [weak self] in self?.tabPressed() }
-        view.onDisplayCaptureRequested = { [weak self] in
-            self?.displayCaptureRequested(on: index)
-        }
         view.onSnapHover = { [weak self] localPoint in
             self?.snapTarget(at: localPoint, for: index)
         }
@@ -334,7 +330,6 @@ final class CaptureOverlaySession {
 
     private func pointerMoved(over index: Int) {
         guard overlays.indices.contains(index) else { return }
-        showToolStrip(on: index)
         let window = overlays[index].window
         guard !window.isKeyWindow, NSApp.isActive else { return }
         // Hovering must not yank key away from an overlay mid-text-edit —
@@ -346,15 +341,6 @@ final class CaptureOverlaySession {
     }
 
     // MARK: - Cross-display state
-
-    /// One tool strip at a time: on the display under the cursor. Tool and
-    /// style state is already mirrored everywhere, so whichever strip shows is
-    /// current.
-    private func showToolStrip(on index: Int) {
-        for (i, overlay) in overlays.enumerated() {
-            overlay.view.setToolStripVisible(i == index)
-        }
-    }
 
     private func selectionActivity(on index: Int, active: Bool) {
         if active {
@@ -402,24 +388,10 @@ final class CaptureOverlaySession {
         )
     }
 
-    // MARK: - Commit routes
+    // MARK: - Commit route
     //
-    // A confirmed Selection, a clicked window and a clicked display all arrive
-    // here as a rectangle (ADR 0014). The model refuses a capture on a display
-    // that does not own the Selection, and holds one whose frozen image has
-    // not landed yet.
-
-    /// `Enter` with no Selection on this display: capture it whole — unless
-    /// another display holds the Selection, in which case that is what the
-    /// user is confirming.
-    private func displayCaptureRequested(on index: Int) {
-        guard overlays.indices.contains(index) else { return }
-        if let owner = model.selectionOwner, owner != index, overlays.indices.contains(owner) {
-            overlays[owner].view.confirm()
-            return
-        }
-        requestCommit(on: index, rect: overlays[index].view.bounds)
-    }
+    // Confirming a Selection is the only commit (ADR 0016). The model holds
+    // one whose frozen image has not landed yet.
 
     private func requestCommit(on index: Int, rect: CGRect) {
         switch model.requestCommit(on: index, rect: rect) {

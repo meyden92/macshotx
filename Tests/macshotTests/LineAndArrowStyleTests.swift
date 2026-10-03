@@ -283,6 +283,7 @@ func dashAndHeadPersistAsToolDefaultsAndApplyToTheNextAnnotation() {
         frame: frame, image: nil, scale: 1.0, onStylesChanged: { saved = $0 }
     )
     window.contentView = view
+    view.selectWholeDisplay()
     window.makeFirstResponder(view)
 
     view.keyDown(with: key("a", 0, window))
@@ -297,6 +298,7 @@ func dashAndHeadPersistAsToolDefaultsAndApplyToTheNextAnnotation() {
         frame: frame, image: nil, scale: 1.0, styles: saved ?? EditorStyles()
     )
     window.contentView = reloaded
+    reloaded.selectWholeDisplay()
     reloaded.keyDown(with: key("a", 0, window))
     drag(in: reloaded, window: window, from: CGPoint(x: 40, y: 40), to: CGPoint(x: 120, y: 40))
 

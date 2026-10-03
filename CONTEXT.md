@@ -10,19 +10,15 @@ The single global shortcut that begins a capture. It carries no intent — it al
 _Avoid_: Capture shortcut, region hotkey, per-mode hotkey
 
 **Capture overlay**:
-The surface presented on every display when a capture begins. Hosts the selection, window snap, and all annotation tools, every one of them live from the first frame; there is no separate window-picking UI, and no capture bypasses it.
+The surface presented on every display when a capture begins. Opens idle — the frozen screen and a helper card, no tools — and hosts window snap, the Selection, and the annotation tools, which come up around the Selection once one exists. Confirming the Selection with `Return` is the only thing that captures; there is no separate window-picking UI, and no capture bypasses it.
 _Avoid_: Region picker, capture window, overlay window
 
-**Annotate-first capture**:
-The one order the capture overlay runs in: annotation tools are live from the first frame over the frozen screen image, and the Selection is made last. It is an order, not a mode — nothing about the annotation model, the compositor or the pipeline differs, and there is no opposite setting to run instead.
-_Avoid_: Fast capture, fast-capture mode, selection-last mode
-
 **Selection**:
-The rectangle that crops the capture down to what is wanted, made last. Confined to a single display. In the capture overlay a drag captures it on release, and a click captures a window or the display outright, so it is only ever live for the length of a drag there; the post-capture editor keeps an adjustable crop Selection that confirming exports. Whatever falls outside it — annotations included — is clipped away.
+The adjustable rectangle inside the capture overlay that will become the captured image, made first. Seeded three ways — dragged freehand, filled to the whole display with `F`, or snapped to a window — after which it is one and the same rectangle however it began: movable, resizable, annotatable, and captured only when confirmed. Confined to a single display; starting one on another display clears the first. Whatever falls outside it — annotations included — is clipped away. In the post-capture editor it is an optional crop.
 _Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
-Capture-overlay behavior where hovering highlights the window under the cursor and clicking captures it. Armed on every capture and toggleable mid-capture; the highlight draws only while the select tool is active; respects window z-order.
+Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. Armed on every capture and toggled with `Tab`; respects window z-order.
 _Avoid_: Window detection, window picking, hover-to-pick
 
 **Boundary snap**:
@@ -62,7 +58,7 @@ The annotations currently selected for group editing (moving, deleting, duplicat
 _Avoid_: Selection (reserved for the capture rectangle), multi-selection
 
 **Marquee**:
-The transient rectangle a select-tool Command-drag sweeps across the canvas, anywhere on it; every annotation it touches joins the selected set. Command is what distinguishes it from a plain drag, which draws the Selection or moves an existing one.
+The transient rectangle a select-tool Command-drag inside the Selection sweeps across the canvas; every annotation it touches joins the selected set. Command is what distinguishes it from a plain drag there, which moves the Selection.
 _Avoid_: Lasso, rubber band (reserved for drawing the Selection), selection box
 
 **Tool-options row**:
@@ -70,7 +66,7 @@ The contextual strip of style controls (color, widths, styles, fonts) reflecting
 _Avoid_: Style strip, options bar
 
 **Beautify**:
-The capture-overlay toggle that wraps the capture's content in a decorative backdrop with padding, rounded corners, a drop shadow and an optional macOS window frame. Previewed live — against the whole display, scaled down, while no Selection exists. Never persisted as a toggle, only as a look.
+The capture-overlay toggle that wraps the Selection's content in a decorative backdrop with padding, rounded corners, a drop shadow and an optional macOS window frame. Previewed live against the Selection, so it is only available once one exists. Never persisted as a toggle, only as a look.
 _Avoid_: Prettify, frame, decorate
 
 **Backdrop**:

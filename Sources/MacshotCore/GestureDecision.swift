@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// The select tool's click and drag precedence as pure decisions (ADR 0014).
+/// The select tool's click and drag precedence as pure decisions (ADR 0016).
 ///
 /// The overlay view builds a `Facts` from what it can observe at mouse-down —
 /// which tool is active, what the point hit, what is already selected — and
@@ -52,20 +52,17 @@ enum SelectGesture {
         case draw
     }
 
-    /// What a click that never dragged means. A capture is reachable only
-    /// from a clean canvas: nothing selected, nothing being typed, no
-    /// Selection to dismiss — that click ladder is what keeps an instant
-    /// display capture survivable (ADR 0014).
+    /// What a click that never dragged means. No click captures — `Return`
+    /// is the only commit — and none seeds the whole display, which is `F`'s
+    /// job (ADR 0016).
     enum ClickOutcome: Equatable {
         case selectAnnotation
-        /// Drop the selected set or commit the open text edit; capture nothing.
+        /// Drop the selected set or commit the open text edit.
         case clearSelectedSet
-        /// A click outside the Selection dismisses it; capture nothing.
+        /// A click outside the Selection dismisses it.
         case clearSelection
-        /// Capture the window under the cursor, immediately.
-        case captureWindow
-        /// Capture the whole display under the cursor, immediately.
-        case captureDisplay
+        /// Seed the Selection to the window under the cursor.
+        case seedWindow
         case nothing
     }
 
@@ -84,24 +81,23 @@ enum SelectGesture {
             return f.shiftHeld ? .toggleMembership : .grabAnnotation
         }
         guard f.tool == .select else { return .draw }
-        if f.hasSelection, let handle = f.selectionHandle { return .resizeSelection(handle) }
-        // The marquee lives anywhere on the canvas, Selection or no Selection:
-        // during the annotate phase there is none, and Command is what tells
-        // it apart from moving or drawing the Selection.
-        if f.commandHeld { return .marquee }
-        if f.hasSelection, f.insideSelection { return .moveSelection }
+        if f.hasSelection {
+            if let handle = f.selectionHandle { return .resizeSelection(handle) }
+            // The marquee is confined to the Selection; Command is what tells
+            // it apart from moving the Selection.
+            if f.insideSelection { return f.commandHeld ? .marquee : .moveSelection }
+        }
         return .drawSelection
     }
 
     static func click(_ f: Facts) -> ClickOutcome {
         if f.hitsAnnotation { return .selectAnnotation }
         if f.hasSelectedSet || f.isEditingText { return .clearSelectedSet }
-        // A click with a drawing tool in hand never captures.
         guard f.tool == .select else { return .nothing }
         if f.hasSelection {
             return f.insideSelection || f.selectionHandle != nil ? .nothing : .clearSelection
         }
-        if f.snapArmed, f.windowUnderCursor { return .captureWindow }
-        return .captureDisplay
+        if f.snapArmed, f.windowUnderCursor { return .seedWindow }
+        return .nothing
     }
 }

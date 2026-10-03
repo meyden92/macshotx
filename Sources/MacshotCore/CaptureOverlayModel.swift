@@ -11,12 +11,12 @@ struct CaptureSessionModel: Equatable {
         case cancelled
     }
 
-    /// A capture waiting for its display's frozen image: a confirmed
-    /// Selection, or the window or display a click captured (ADR 0014). Every
-    /// route comes down to a rectangle, so a rectangle is the whole of it.
+    /// A confirmed Selection waiting for its display's frozen image. Confirming
+    /// a Selection is the only way to commit, so a rectangle is the whole of it
+    /// (ADR 0016).
     struct HeldCommit: Equatable {
         var display: Int
-        /// The captured rectangle, in the owning display's view points.
+        /// The Selection, in the owning display's view points.
         var rect: CGRect
     }
 
@@ -28,9 +28,9 @@ struct CaptureSessionModel: Equatable {
     private(set) var heldCommit: HeldCommit?
     private(set) var resolution: Resolution = .pending
 
-    /// Window snap starts armed on every capture (ADR 0014): pointing at a
-    /// window and clicking is the most common capture, and it must not need a
-    /// `Tab` first.
+    /// Window snap starts armed on every capture: pointing at a window and
+    /// clicking it is the quickest way to a Selection, and it must not need a
+    /// `Tab` first (ADR 0016).
     init(displayCount: Int, snapArmed: Bool = true) {
         self.snapArmed = snapArmed
         self.imageReady = Array(repeating: false, count: displayCount)
@@ -51,10 +51,10 @@ struct CaptureSessionModel: Equatable {
         if selectionOwner == display { selectionOwner = nil }
     }
 
-    /// Tab. Accepted at any point while the session is pending: "no Selection"
-    /// is the normal working state under annotate-first, and a Selection only
-    /// hides the highlight, it does not lock the mode. Returns true when the
-    /// snap state changed.
+    /// Tab. Accepted at any point while the session is pending: snap only acts
+    /// on an idle display, and another display can be idle — its helper card
+    /// offering Tab — while this one holds the Selection. Returns true when
+    /// the snap state changed.
     mutating func toggleSnap() -> Bool {
         guard resolution == .pending else { return false }
         snapArmed.toggle()
@@ -69,16 +69,9 @@ struct CaptureSessionModel: Equatable {
         case ignored
     }
 
-    /// A capture requested on a display. Refused while another display owns
-    /// the Selection: a click capture is a single event and can be a slip,
-    /// and a slip must not discard the Selection another display holds along
-    /// with the work drawn on it. A drag is the one route that takes the
-    /// Selection over (see `startSelection`): sustained, and unmistakably
-    /// meant.
     mutating func requestCommit(on display: Int, rect: CGRect) -> CommitDisposition {
         guard resolution == .pending, heldCommit == nil,
-              imageReady.indices.contains(display),
-              selectionOwner == nil || selectionOwner == display
+              imageReady.indices.contains(display)
         else { return .ignored }
         if imageReady[display] {
             resolution = .committed
@@ -106,5 +99,30 @@ struct CaptureSessionModel: Equatable {
         guard resolution == .pending else { return false }
         resolution = .cancelled
         return true
+    }
+}
+
+/// Content of the idle helper card, produced purely from the snap state and
+/// the suppression setting so it can be asserted without presenting a window.
+enum HelperCard {
+    struct Content: Equatable {
+        let instruction: String
+        let status: String
+    }
+
+    /// Every route seeds the Selection, so the card says "select", never
+    /// "capture": nothing here takes a screenshot on its own (ADR 0016).
+    static func content(snapArmed: Bool, suppressed: Bool) -> Content? {
+        guard !suppressed else { return nil }
+        if snapArmed {
+            return Content(
+                instruction: "Click a window to select it · drag an area · F for fullscreen",
+                status: "Window snap: ON (Tab)"
+            )
+        }
+        return Content(
+            instruction: "Drag an area to select it · F for fullscreen",
+            status: "Window snap: OFF (Tab)"
+        )
     }
 }
