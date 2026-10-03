@@ -12,12 +12,14 @@ struct CaptureSessionModel: Equatable {
     }
 
     /// A confirmed Selection waiting for its display's frozen image. Confirming
-    /// a Selection is the only way to commit, so a rectangle is the whole of it
-    /// (ADR 0016).
+    /// a Selection is the only way to commit (ADR 0016); a window-snapped one
+    /// that was never edited also brings its window along (ADR 0018).
     struct HeldCommit: Equatable {
         var display: Int
         /// The Selection, in the owning display's view points.
         var rect: CGRect
+        /// The Selection's window provenance, if it still has one.
+        var window: WindowCandidate? = nil
     }
 
     private(set) var snapArmed: Bool
@@ -72,7 +74,9 @@ struct CaptureSessionModel: Equatable {
         case ignored
     }
 
-    mutating func requestCommit(on display: Int, rect: CGRect) -> CommitDisposition {
+    mutating func requestCommit(
+        on display: Int, rect: CGRect, window: WindowCandidate? = nil
+    ) -> CommitDisposition {
         guard resolution == .pending, heldCommit == nil,
               imageReady.indices.contains(display)
         else { return .ignored }
@@ -80,7 +84,7 @@ struct CaptureSessionModel: Equatable {
             resolution = .committed
             return .perform
         }
-        heldCommit = HeldCommit(display: display, rect: rect)
+        heldCommit = HeldCommit(display: display, rect: rect, window: window)
         return .held
     }
 

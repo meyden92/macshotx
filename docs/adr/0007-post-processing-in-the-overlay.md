@@ -1,5 +1,7 @@
 # Post-processing is composited in the capture overlay, not in the Pipeline
 
+> **Amended by ADR 0018 (2026-10-03).** The window companion image brings transparent pixels back into composition, but not into the artifact. Only beautify composes the companion, over an opaque backdrop, so the may-contain-transparency flag stays gone and the Pipeline still receives an opaque image.
+
 > **Amended by ADR 0016 (2026-10-03), reversing the ADR 0013 amendment below.** Post-processing previews against the Selection again — shrunk to fit only when the padded canvas does not fit on the display, as with a whole-display Selection — and is unavailable while the capture overlay is idle: there is nothing to preview against, the toolbar holding its controls is hidden, and their Option shortcuts do nothing. A Selection that goes away switches beautify off and closes the effects panel. No capture carries an unpreviewed look into the commit any more.
 
 > **Amended by #8 (2026-08-13).** Background removal was dropped from the app, and with it the alpha-safe output format: nothing can produce transparency any more, so the artifact no longer carries a may-contain-transparency flag. Everything below still holds for beautify and image effects.

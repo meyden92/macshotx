@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import MacshotCore
@@ -105,4 +106,59 @@ func extensionSuffixDetection() {
     #expect(FilenameTemplate.extensionSuffix(of: "shot.heic") == ".heic")
     #expect(FilenameTemplate.extensionSuffix(of: "shot") == "")
     #expect(FilenameTemplate.extensionSuffix(of: "shotpng") == "")
+}
+
+// MARK: - Who a capture is filed under (ADR 0018)
+
+private let onePixel = CGContext(
+    data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+    space: CGColorSpaceCreateDeviceRGB(),
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+)!.makeImage()!
+
+/// `%app` and `%window` as a commit with or without a window would file it.
+private func appAndWindow(of commit: CaptureOverlaySession.Commit) -> String {
+    var context = makeContext()
+    context.appName = commit.appName
+    context.windowTitle = commit.windowTitle
+    return FilenameTemplate.expand("%app__%window", context: context)
+}
+
+@Test
+func aWindowSnappedCaptureIsFiledUnderTheWindowEvenWhenItWasNeverFrontmost() {
+    // Safari was frontmost when the overlay opened; the snapped window is
+    // Xcode's, behind it.
+    let xcode = WindowCandidate(
+        id: 7, frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+        bundleIdentifier: "com.apple.dt.Xcode", applicationName: "Xcode", title: "MainView",
+        layer: 0, isOnScreen: true
+    )
+    let commit = CaptureOverlaySession.Commit(
+        image: onePixel, window: xcode,
+        frontAppName: "Safari", frontWindowTitle: "Grafana – Dashboards"
+    )
+    #expect(appAndWindow(of: commit) == "Xcode__MainView")
+}
+
+@Test
+func aWindowWithoutATitleIsNotFiledUnderTheFrontmostWindowsTitle() {
+    let untitled = WindowCandidate(
+        id: 8, frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+        bundleIdentifier: "com.example.app", applicationName: "Example",
+        layer: 0, isOnScreen: true
+    )
+    let commit = CaptureOverlaySession.Commit(
+        image: onePixel, window: untitled,
+        frontAppName: "Safari", frontWindowTitle: "Grafana – Dashboards"
+    )
+    #expect(appAndWindow(of: commit) == "Example__")
+}
+
+@Test
+func anyOtherCaptureIsFiledUnderTheAppFrontmostWhenTheOverlayOpened() {
+    let commit = CaptureOverlaySession.Commit(
+        image: onePixel, window: nil,
+        frontAppName: "Safari", frontWindowTitle: "Grafana – Dashboards"
+    )
+    #expect(appAndWindow(of: commit) == "Safari__Grafana___Dashboards")
 }

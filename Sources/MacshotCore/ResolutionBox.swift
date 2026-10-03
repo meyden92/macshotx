@@ -1,8 +1,10 @@
 import AppKit
 
 /// The Resolution box: editable width × height fields, a px/pt unit toggle
-/// and a presets button. Values and unit handling belong to the hosting view;
-/// this view only displays, edits and reports. Phase 7 restyles the chrome.
+/// and a presets button, plus — while the Selection carries window
+/// provenance — the name of that window (ADR 0018). Values and unit handling
+/// belong to the hosting view; this view only displays, edits and reports.
+/// Phase 7 restyles the chrome.
 @MainActor
 final class ResolutionBoxView: NSView, NSTextFieldDelegate {
     /// Exactly one of the two values is non-nil: the field the user committed.
@@ -16,6 +18,9 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
     var presetsTitle: String { presetsButton.title }
     private let unitButton: MiniButton
     private let presetsButton: MiniButton
+    private let provenanceLabel: NSTextField
+    /// The window the Selection is, as shown; nil while it is a plain area.
+    var provenance: String? { provenanceLabel.isHidden ? nil : provenanceLabel.stringValue }
     private var displayedWidth = ""
     private var displayedHeight = ""
     /// Suppresses the end-editing blip while Tab hands focus between fields,
@@ -39,6 +44,7 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
         heightField = makeField()
         unitButton = MiniButton(title: "px", width: 26)
         presetsButton = MiniButton(title: "▾", width: 22)
+        provenanceLabel = NSTextField(labelWithString: "")
         super.init(frame: NSRect(x: 0, y: 0, width: 210, height: 30))
         wantsLayer = true
         // The fields keep dynamic text rather than a hardcoded white: the
@@ -59,7 +65,15 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
         heightField.delegate = self
         unitButton.onClick = { [weak self] in self?.onUnitToggled?() }
         presetsButton.onClick = { [weak self] in self?.onPresetsTapped?() }
-        for view in [widthField, times, heightField, unitButton, presetsButton] as [NSView] {
+        provenanceLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        provenanceLabel.textColor = .secondaryLabelColor
+        provenanceLabel.lineBreakMode = .byTruncatingTail
+        provenanceLabel.isHidden = true
+        provenanceLabel.toolTip = "Captured as this window: %app and %window name it, "
+            + "and Beautify uses its own rounded corners. Editing the Selection "
+            + "makes it a plain area."
+        for view in [widthField, times, heightField, unitButton, presetsButton, provenanceLabel]
+            as [NSView] {
             addSubview(view)
         }
         frame.size.width = presetsButton.frame.maxX + 8
@@ -68,8 +82,11 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { nil }
 
     /// The box holds still and its fields keep their text while being edited.
-    func display(width: Int, height: Int, unit: String, lock: String?) {
-        display(width: "\(width)", height: "\(height)", unit: unit, lock: lock)
+    func display(width: Int, height: Int, unit: String, lock: String?, provenance: String?) {
+        display(
+            width: "\(width)", height: "\(height)", unit: unit, lock: lock,
+            provenance: provenance
+        )
     }
 
     /// No Selection yet: the box stays reachable so presets can be armed.
@@ -77,7 +94,9 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
         display(width: "–", height: "–", unit: unit, lock: lock)
     }
 
-    private func display(width: String, height: String, unit: String, lock: String?) {
+    private func display(
+        width: String, height: String, unit: String, lock: String?, provenance: String? = nil
+    ) {
         displayedWidth = width
         displayedHeight = height
         unitButton.setTitle(unit)
@@ -85,6 +104,15 @@ final class ResolutionBoxView: NSView, NSTextFieldDelegate {
         // it silently reshapes every drag with nothing on screen to explain it.
         presetsButton.setTitle(lock.map { "\($0) ▾" } ?? "▾")
         frame.size.width = presetsButton.frame.maxX + 8
+        provenanceLabel.isHidden = provenance == nil
+        if let provenance {
+            provenanceLabel.stringValue = provenance
+            let textWidth = min(220, ceil(provenanceLabel.attributedStringValue.size().width) + 2)
+            provenanceLabel.frame = NSRect(
+                x: presetsButton.frame.maxX + 8, y: 7, width: textWidth, height: 16
+            )
+            frame.size.width = provenanceLabel.frame.maxX + 8
+        }
         if !isEditing {
             widthField.stringValue = displayedWidth
             heightField.stringValue = displayedHeight

@@ -21,6 +21,9 @@ final class RegionPickerView: NSView {
     /// Resolve the snap target for a pointer position in this view's own
     /// space; returns the candidate plus its rect in that same space.
     var onSnapHover: ((NSPoint) -> (candidate: WindowCandidate, rect: NSRect)?)?
+    /// Window snap seeded the Selection to this window, which it now carries as
+    /// its provenance — the session captures the window's companion image.
+    var onWindowSeeded: ((WindowCandidate) -> Void)?
     /// The pointer moved over this overlay — the session keys its window.
     var onPointerMoved: (() -> Void)?
     /// The user chose a tool here — the session mirrors it everywhere else.
@@ -61,7 +64,19 @@ final class RegionPickerView: NSView {
     private var loupeMagnification = LoupeGeometry.defaultMagnification
     private var spotlightStyle = SpotlightStyle.default
 
-    private var selection: NSRect?
+    private var selection: NSRect? {
+        didSet { if selection != oldValue { dropWindowProvenance() } }
+    }
+    /// The window that window snap seeded the Selection from, held only while
+    /// the rectangle is still exactly that window: any change to it — move,
+    /// resize, nudge, typed size, aspect lock, a new Selection — drops it, and
+    /// the capture is a plain area again. While it holds, the Resolution box
+    /// names the window, so it is never invisible (ADR 0018).
+    private(set) var windowProvenance: WindowCandidate?
+    /// The provenance window captured on its own: shadow-free, with transparent
+    /// rounded corners. Beautify composes it instead of the frozen crop so the
+    /// backdrop shows through the window's real corners.
+    private var windowCompanion: CGImage?
     /// Colour edges of the frozen screenshot, built in the background after
     /// presentation; nil until it arrives, so early gestures simply don't snap.
     var edgeIndex: EdgeIndex?
@@ -279,6 +294,26 @@ final class RegionPickerView: NSView {
         needsDisplay = true
     }
 
+    /// The session's companion image for the window the Selection was snapped
+    /// to. Kept only while the Selection still carries that window: one that
+    /// lands after an edit has nothing left to belong to.
+    func setWindowCompanion(_ image: CGImage, for window: WindowCandidate) {
+        guard windowProvenance == window else { return }
+        windowCompanion = image
+        invalidateComposition()
+        postPanel?.configure(composition.beautify, carriesOwnFrame: true)
+        needsDisplay = true
+    }
+
+    private func dropWindowProvenance() {
+        guard windowProvenance != nil else { return }
+        windowProvenance = nil
+        guard windowCompanion != nil else { return }
+        windowCompanion = nil
+        invalidateComposition()
+        postPanel?.configure(composition.beautify, carriesOwnFrame: false)
+    }
+
     /// The Selection is gone, so the overlay is idle again: the select tool
     /// is the only tool — chosen here without telling the session, which
     /// would push it onto the display that now holds the Selection — and
@@ -393,8 +428,8 @@ final class RegionPickerView: NSView {
             // The drag ladder already dropped the Selection at mouse-down.
             break
         case .seedWindow:
-            guard let (_, rect) = onSnapHover?(point) else { return }
-            seedSelection(rect)
+            guard let (candidate, rect) = onSnapHover?(point) else { return }
+            seedSelection(rect, window: candidate)
         }
     }
 
@@ -408,13 +443,21 @@ final class RegionPickerView: NSView {
     /// or a click on a snapped window. What comes out is an ordinary
     /// Selection — movable, resizable, annotatable — and nothing is captured
     /// until it is confirmed (ADR 0016). Clamped to this display; a rect
-    /// that misses it entirely seeds nothing.
-    private func seedSelection(_ rect: NSRect) {
+    /// that misses it entirely seeds nothing. A snapped `window` becomes the
+    /// Selection's provenance only when the whole of it is on this display —
+    /// a clamped Selection is part of a window, which is a plain area.
+    private func seedSelection(_ rect: NSRect, window: WindowCandidate? = nil) {
         let clamped = rect.intersection(bounds)
         guard clamped.width >= 1, clamped.height >= 1 else { return }
         selectionGesture = nil
         liveSelectionRect = nil
+        // A seed is a new Selection even when it lands on the same rectangle.
+        dropWindowProvenance()
         selection = clamped
+        if let window, clamped == rect {
+            windowProvenance = window
+            onWindowSeeded?(window)
+        }
         // A Selection exists now, so the highlight has nothing left to offer.
         snapHighlight = nil
         invalidateComposition()
@@ -738,11 +781,18 @@ final class RegionPickerView: NSView {
             return
         }
         let factor = showSizesInPoints ? 1 : scale
+        // A gesture in flight is about to make the Selection a plain area.
+        let window = liveSelectionRect == nil ? windowProvenance : nil
         box.display(
             width: Int((active.width * factor).rounded()),
             height: Int((active.height * factor).rounded()),
             unit: unit,
-            lock: lock
+            lock: lock,
+            provenance: window.map { window in
+                let name = [window.applicationName, window.title]
+                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — ")
+                return name.isEmpty ? "Window" : name
+            }
         )
     }
 
@@ -1064,7 +1114,7 @@ final class RegionPickerView: NSView {
             addSubview(panel)
             postPanel = panel
         }
-        postPanel?.configure(composition.beautify)
+        postPanel?.configure(composition.beautify, carriesOwnFrame: windowCompanion != nil)
         positionPostPanel()
     }
 
@@ -1140,7 +1190,7 @@ final class RegionPickerView: NSView {
         else { return nil }
         let previewScale = CGFloat(capture.width) / rect.width
         let image = PostProcessingCompositor.render(
-            capture, settings: composition.beautify, scale: previewScale
+            capture, settings: beautifySettings(for: rect), scale: previewScale
         )
         previewComposition = image
         return image
@@ -1156,7 +1206,7 @@ final class RegionPickerView: NSView {
         // canvas is laid out in the Selection's own points rather than the
         // preview image's pixels.
         let layout = PostProcessingCompositor.layout(
-            captureSize: rect.size, settings: composition.beautify, scale: 1
+            captureSize: rect.size, settings: beautifySettings(for: rect), scale: 1
         )
         let placement = PostProcessingCompositor.previewPlacement(
             of: layout, capture: rect, in: bounds
@@ -2815,7 +2865,9 @@ final class RegionPickerView: NSView {
             CGRect(x: 0, y: 0, width: frozen.width, height: frozen.height)
         )
         guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
-        guard var source = frozen.cropping(to: pixelRect) else { return nil }
+        // The window companion is already exactly the window, corners and all.
+        guard var source = companionSource(for: rect) ?? frozen.cropping(to: pixelRect)
+        else { return nil }
 
         // ADR 0003: the Core Image pass runs on this crop, never on the whole
         // frozen screen, and never at more than the working size it needs.
@@ -2881,8 +2933,28 @@ final class RegionPickerView: NSView {
         guard let capture = captureImage(rect: rect) else { return nil }
         // Preview and bake share this call; only the pixel scale differs.
         return PostProcessingCompositor.render(
-            capture, settings: composition.beautify, scale: scale
+            capture, settings: beautifySettings(for: rect), scale: scale
         )
+    }
+
+    /// The window companion, when beautify is composing the Selection it
+    /// belongs to. With beautify off the frozen crop is what a window capture
+    /// produces, square corners and all.
+    private func companionSource(for rect: NSRect) -> CGImage? {
+        guard composition.beautify.enabled, rect == selection else { return nil }
+        return windowCompanion
+    }
+
+    /// The beautify settings as the compositor should see them for `rect`: on
+    /// the window-companion path the source already carries its own corners and
+    /// title bar, so those two stages are dropped rather than applied twice.
+    private func beautifySettings(for rect: NSRect) -> BeautifySettings {
+        var settings = composition.beautify
+        if companionSource(for: rect) != nil {
+            settings.cornerRadius = 0
+            settings.windowFrame = false
+        }
+        return settings
     }
 
     // MARK: Drawing
@@ -4097,6 +4169,15 @@ final class OptionSlider: NSView {
     private static let trackWidth: CGFloat = 88
     private static let gap: CGFloat = 6
 
+    /// A control that does nothing needs to say so rather than just not
+    /// responding — see the window companion, which carries its own corners.
+    var isEnabled: Bool {
+        get { slider.isEnabled }
+        set {
+            slider.isEnabled = newValue
+            alphaValue = newValue ? 1 : 0.4
+        }
+    }
 
     private let slider: TrackingSlider
     private let valueLabel: NSTextField

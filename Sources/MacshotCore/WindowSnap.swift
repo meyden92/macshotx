@@ -4,10 +4,16 @@ import CoreGraphics
 /// ScreenCaptureKit types. Frames are in global Quartz coordinates (top-left
 /// origin at the primary display's top-left, y increasing downward), points.
 /// Candidate lists are ordered front-to-back.
+///
+/// A Selection seeded from a candidate carries it as its window provenance
+/// until the rectangle is edited (ADR 0018), which is what the app name and
+/// title are for: they name the capture for `%app` and `%window`.
 struct WindowCandidate: Equatable, Sendable {
     var id: UInt32
     var frame: CGRect
     var bundleIdentifier: String?
+    var applicationName: String? = nil
+    var title: String? = nil
     /// CGWindow layer; 0 is the normal window layer.
     var layer: Int
     var isOnScreen: Bool

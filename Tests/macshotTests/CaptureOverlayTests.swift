@@ -114,6 +114,21 @@ func aFullscreenSelectionConfirmedBeforeItsImageLandsIsHeldForIt() {
 }
 
 @Test
+func aWindowSnappedSelectionConfirmedBeforeItsImageLandsKeepsItsWindow() {
+    // Window mode: the click can seed before the frozen image is in, and the
+    // held commit must not lose which window the Selection is (#64).
+    var model = CaptureSessionModel(displayCount: 1, mode: .window, displayUnderCursor: 0)
+    let window = WindowCandidate(
+        id: 7, frame: CGRect(x: 40, y: 30, width: 600, height: 400),
+        bundleIdentifier: "com.apple.dt.Xcode", applicationName: "Xcode", title: "Main.swift",
+        layer: 0, isOnScreen: true
+    )
+    let rect = CGRect(x: 40, y: 30, width: 600, height: 400)
+    #expect(model.requestCommit(on: 0, rect: rect, window: window) == .held)
+    #expect(model.imageArrived(on: 0)?.window == window)
+}
+
+@Test
 func commitAfterImageArrivedPerformsImmediately() {
     var model = CaptureSessionModel(displayCount: 1, mode: .area, displayUnderCursor: 0)
     _ = model.imageArrived(on: 0)

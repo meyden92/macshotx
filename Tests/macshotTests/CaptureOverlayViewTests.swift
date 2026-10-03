@@ -293,6 +293,114 @@ func anotherDisplayTakingTheSelectionLeavesThisOneIdleWithOnlyTheSelectTool() {
     #expect(view.annotations.isEmpty, "A drag draws a Selection again")
 }
 
+// MARK: - Window provenance (ADR 0018)
+
+private let xcodeWindow = WindowCandidate(
+    id: 7, frame: CGRect(x: 40, y: 40, width: 100, height: 100),
+    bundleIdentifier: "com.apple.dt.Xcode", applicationName: "Xcode", title: "Main.swift",
+    layer: 0, isOnScreen: true
+)
+
+@MainActor
+private func resolutionBox(of view: RegionPickerView) -> ResolutionBoxView? {
+    view.subviews.compactMap { $0 as? ResolutionBoxView }.first
+}
+
+/// An overlay whose Selection window snap seeded to `xcodeWindow`.
+@MainActor
+private func snappedToXcode() -> (RegionPickerView, NSWindow) {
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.onSnapHover = { _ in (xcodeWindow, NSRect(x: 40, y: 40, width: 100, height: 100)) }
+    view.setSnapArmed(true)
+    click(at: CGPoint(x: 90, y: 90), view: view, window: window)
+    return (view, window)
+}
+
+@MainActor
+@Test
+func aWindowSnappedSelectionCarriesItsWindowAndSaysSoBesideTheResolutionBox() {
+    var seeded: WindowCandidate?
+    let (view, window) = makeOverlayView(image: makeImage())
+    view.onWindowSeeded = { seeded = $0 }
+    view.onSnapHover = { _ in (xcodeWindow, NSRect(x: 40, y: 40, width: 100, height: 100)) }
+    view.setSnapArmed(true)
+    click(at: CGPoint(x: 90, y: 90), view: view, window: window)
+
+    #expect(view.windowProvenance == xcodeWindow)
+    #expect(seeded == xcodeWindow, "The session is told, so it can capture the companion")
+    #expect(resolutionBox(of: view)?.provenance == "Xcode — Main.swift")
+}
+
+@MainActor
+@Test
+func everyEditToTheSelectionDropsItsWindowAndTheIndicatorWithIt() {
+    let edits: [(String, (RegionPickerView, NSWindow) -> Void)] = [
+        ("move", { view, window in
+            drag(from: CGPoint(x: 110, y: 42), to: CGPoint(x: 120, y: 52), view: view, window: window)
+        }),
+        ("resize", { view, window in
+            drag(from: CGPoint(x: 140, y: 140), to: CGPoint(x: 160, y: 160), view: view, window: window)
+        }),
+        ("nudge", { view, window in
+            view.keyDown(with: key("\u{F703}", 124, window))
+        }),
+        ("typed size", { view, _ in
+            resolutionBox(of: view)?.onSizeCommitted?(120, nil)
+        }),
+        ("aspect lock", { view, window in
+            resolutionBox(of: view)?.onPresetsTapped?()
+            let panel = view.subviews.compactMap { $0 as? PresetsPanelView }.first
+            let row = panel?.subviews.compactMap { $0 as? PresetRowButton }.first { $0.title == "16:9" }
+            row?.mouseDown(with: mouse(.leftMouseDown, at: .zero, view: view, window: window))
+        }),
+    ]
+    for (name, edit) in edits {
+        let (view, window) = snappedToXcode()
+        #expect(view.windowProvenance != nil)
+        edit(view, window)
+        #expect(view.windowProvenance == nil, "\(name) makes it a plain area")
+        #expect(resolutionBox(of: view)?.provenance == nil, "\(name) hides the indicator")
+    }
+}
+
+@MainActor
+@Test
+func aClickInsideTheSelectionIsNoEditAndKeepsItsWindow() {
+    let (view, window) = snappedToXcode()
+    click(at: CGPoint(x: 90, y: 90), view: view, window: window)
+    #expect(view.windowProvenance == xcodeWindow)
+}
+
+@MainActor
+@Test
+func draggedFullscreenAndClampedSelectionsCarryNoWindow() {
+    let (dragged, draggedWindow) = makeOverlayView(image: makeImage())
+    drag(from: CGPoint(x: 40, y: 40), to: CGPoint(x: 140, y: 140), view: dragged, window: draggedWindow)
+    #expect(dragged.windowProvenance == nil)
+
+    let (fullscreen, fullscreenWindow) = makeOverlayView(image: makeImage())
+    fullscreen.keyDown(with: key("f", 3, fullscreenWindow))
+    #expect(fullscreen.windowProvenance == nil)
+    #expect(resolutionBox(of: fullscreen)?.provenance == nil)
+
+    // Hanging off the display, the Selection is only part of the window.
+    let (clamped, clampedWindow) = makeOverlayView(image: makeImage())
+    clamped.onSnapHover = { _ in (xcodeWindow, NSRect(x: 150, y: 20, width: 200, height: 60)) }
+    clamped.setSnapArmed(true)
+    click(at: CGPoint(x: 160, y: 40), view: clamped, window: clampedWindow)
+    #expect(!clamped.isIdle)
+    #expect(clamped.windowProvenance == nil)
+}
+
+@MainActor
+@Test
+func dismissingAndDrawingANewSelectionLeavesNoWindowBehind() {
+    let (view, window) = snappedToXcode()
+    click(at: CGPoint(x: 180, y: 180), view: view, window: window)
+    #expect(view.isIdle)
+    #expect(view.windowProvenance == nil)
+}
+
 // MARK: - Committing: Return, and only Return
 
 @MainActor

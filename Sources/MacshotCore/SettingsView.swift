@@ -462,7 +462,7 @@ struct FilenamesSettingsTab: View {
             Section("Tokens") {
                 Text(
                     "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
-                    + "%window %app — active window/app\n"
+                    + "%window %app — snapped window, else the frontmost app\n"
                     + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
                 )
                 .font(.callout.monospaced())

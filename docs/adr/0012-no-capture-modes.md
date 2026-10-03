@@ -1,5 +1,7 @@
 # There are no capture modes; one pipeline runs after every capture
 
+> **Superseded in part by ADR 0018 (2026-10-03).** The provenance half is reversed: a Selection seeded by window snap carries its window until the rectangle is edited, and the Resolution box shows it while it holds — so it is no longer the invisible provenance rejected below. The window companion image and `%app`/`%window` naming the captured window come back with it. Dragged and fullscreen-seeded Selections still carry nothing.
+
 > **Superseded in part by ADR 0017 (2026-10-03).** Capture modes are back as the starting mode of a capture hotkey: Area, Window or Fullscreen. The pipeline now follows the hotkey, not the mode. The provenance half of this record still stands until #64.
 
 > **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing, so provenance does not reopen on that route; #64 brings it back with Window-mode captures instead.

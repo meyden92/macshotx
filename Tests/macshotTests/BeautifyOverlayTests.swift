@@ -250,6 +250,104 @@ func aWholeDisplaySelectionPreviewsAndBakesTheConfiguredLook() throws {
     #expect(pixel(composed, 240, 240).r < 240, "and the darkened (no longer white) capture in the middle")
 }
 
+// MARK: - Window companion (ADR 0018)
+
+private let finder = WindowCandidate(
+    id: 9, frame: CGRect(x: 100, y: 100, width: 200, height: 200),
+    bundleIdentifier: "com.apple.finder", applicationName: "Finder", title: "Downloads",
+    layer: 0, isOnScreen: true
+)
+
+/// A clean window image as ScreenCaptureKit returns one shadow-free: opaque
+/// content with transparent rounded corners.
+private func companionImage() -> CGImage {
+    let ctx = CGContext(
+        data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 800,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    ctx.setFillColor(NSColor.systemBlue.cgColor)
+    ctx.addPath(CGPath(
+        roundedRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+        cornerWidth: 40, cornerHeight: 40, transform: nil
+    ))
+    ctx.fillPath()
+    return ctx.makeImage()!
+}
+
+/// A capture overlay over a black desktop whose Selection window snap seeded
+/// to `finder`.
+@MainActor
+private func snappedToFinder() -> (RegionPickerView, NSWindow) {
+    let (view, window) = makeHostedView(fill: .black, overlay: true)
+    view.onSnapHover = { _ in (finder, NSRect(x: 100, y: 100, width: 200, height: 200)) }
+    view.setSnapArmed(true)
+    for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let event = NSEvent.mouseEvent(
+            with: kind, location: NSPoint(x: 200, y: 200), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1.0
+        )!
+        kind == .leftMouseDown ? view.mouseDown(with: event) : view.mouseUp(with: event)
+    }
+    return (view, window)
+}
+
+/// Beautify on paper, no shadow, 10% padding, and the two controls a window
+/// brings its own version of switched on.
+@MainActor
+private func beautifyOnPaper(_ view: RegionPickerView, _ window: NSWindow) throws -> PostProcessingPanelView {
+    view.keyDown(with: key("b", 11, window, flags: .option))
+    let panel = try #require(view.subviews.compactMap { $0 as? PostProcessingPanelView }.first)
+    panel.onStyleSelected?("paper")
+    panel.onShadowSelected?(.none)
+    panel.onPaddingChanged?(0.1)
+    panel.onCornerRadiusChanged?(0)
+    panel.onWindowFrameToggled?(true)
+    return panel
+}
+
+@MainActor
+@Test
+func aWindowSnappedCaptureComposesTheWindowSoTheBackdropShowsThroughItsCorners() throws {
+    let (view, window) = snappedToFinder()
+    view.setWindowCompanion(companionImage(), for: finder)
+    let panel = try beautifyOnPaper(view, window)
+
+    #expect(panel.radiusSlider.isEnabled == false)
+    #expect(panel.windowFrameToggle.isEnabled == false,
+            "The window already carries its own corners and title bar")
+
+    let composed = try #require(selectAndConfirm(view, window))
+    #expect(composed.height == 240, "No title bar was added on top of the window's own")
+    // Paper is one solid colour, so the window's corner must match the margin.
+    let throughTheCorner = pixel(composed, 22, 22)
+    let backdrop = pixel(composed, 2, 2)
+    #expect(throughTheCorner.r == backdrop.r && throughTheCorner.g == backdrop.g
+                && throughTheCorner.b == backdrop.b && throughTheCorner.a == 255,
+            "The paper backdrop shows through the window's corner, not the black desktop")
+    #expect(pixel(composed, 120, 120).b > 180, "and the window itself is in the middle")
+}
+
+@MainActor
+@Test
+func anEditedWindowSelectionComposesLikeADraggedArea() throws {
+    let (view, window) = snappedToFinder()
+    view.setWindowCompanion(companionImage(), for: finder)
+    // Nudged right and back: the same rectangle, but no longer the window —
+    // and a companion arriving late has nothing to belong to.
+    view.keyDown(with: key("\u{F703}", 124, window))
+    view.setWindowCompanion(companionImage(), for: finder)
+    view.keyDown(with: key("\u{F702}", 123, window))
+    let panel = try beautifyOnPaper(view, window)
+
+    #expect(panel.radiusSlider.isEnabled, "A plain area has no corners of its own")
+    let composed = try #require(selectAndConfirm(view, window))
+    #expect(composed.height == 240 + 28, "The frame toggle applies again")
+    let corner = pixel(composed, 22, 22 + 28)
+    #expect(corner.r < 40 && corner.g < 40, "Square corners, cut from the frozen desktop")
+}
+
 // MARK: - Image effects
 
 @MainActor

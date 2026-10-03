@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
 
-/// The canonical artifact a capture produces, fed into the pipeline. Nothing
-/// on it records how the Selection was seeded: there are no capture modes for
-/// it to record (ADR 0012).
+/// The canonical artifact a capture produces, fed into the pipeline.
 struct CaptureArtifact {
     let image: CGImage
-    /// Frontmost app / window title at trigger time, for %app / %window tokens.
+    /// What %app / %window name: the snapped window when the Selection still
+    /// carried window provenance, otherwise the frontmost app when the overlay
+    /// opened (ADR 0018).
     let appName: String?
     let windowTitle: String?
 }

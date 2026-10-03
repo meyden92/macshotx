@@ -18,12 +18,16 @@ The surface presented on every display when a capture begins. Opens idle — the
 _Avoid_: Region picker, capture window, overlay window
 
 **Selection**:
-The adjustable rectangle inside the capture overlay that will become the captured image, made first. Seeded three ways — dragged freehand, filled to the whole display with `F`, or snapped to a window — after which it is one and the same rectangle however it began: movable, resizable, annotatable, and captured only when confirmed. Confined to a single display; starting one on another display clears the first. Whatever falls outside it — annotations included — is clipped away. In the post-capture editor it is an optional crop.
+The adjustable rectangle inside the capture overlay that will become the captured image, made first. Seeded three ways — dragged freehand, filled to the whole display with `F`, or snapped to a window — after which it is one and the same rectangle however it began: movable, resizable, annotatable, and captured only when confirmed. The one exception: a window-snapped Selection carries Window provenance until the rectangle first changes. Confined to a single display; starting one on another display clears the first. Whatever falls outside it — annotations included — is clipped away. In the post-capture editor it is an optional crop.
 _Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
-Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. Armed on every capture and toggled with `Tab`; respects window z-order.
+Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. The Selection it seeds carries Window provenance. Armed from the start in Window mode, off otherwise, and toggled with `Tab`; respects window z-order.
 _Avoid_: Window detection, window picking, hover-to-pick
+
+**Window provenance**:
+The window a Selection was snapped to — its app, title and frame — carried only while the Selection is still exactly that window. Any change to the rectangle drops it, and so does dismissing it or starting a new Selection; dragged and fullscreen Selections never have it. While it holds, the Resolution box names the window. A capture confirmed with it is filed under that window for `%app` and `%window`, and beautify composes the window's own shadow-free image, so the backdrop shows through its rounded corners. Every other capture is filed under the app that was frontmost when the overlay opened.
+_Avoid_: Window capture, capture source, window mode (that is a Capture mode)
 
 **Boundary snap**:
 Selection edges magnetically snapping to strong color edges in the frozen screen image while drawing, moving, or resizing the selection. Bypassable with a modifier key.

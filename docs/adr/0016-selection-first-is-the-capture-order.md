@@ -22,4 +22,4 @@ Annotate-first was reversed because it confused the people using it. With every 
 - Annotation happens inside an existing Selection, but a drawing tool still draws anywhere on the display. Moving or resizing the Selection afterwards clips with the compositor's bake-then-crop, unchanged.
 - Post-processing previews against the Selection and is unavailable while idle (ADR 0007, amended).
 - The post-capture editor is never idle. It annotates without a crop, exports the whole image when there is none, and keeps its own confirm.
-- `%app` and `%window` still name the frontmost app (ADR 0012). Window provenance comes back with Window-mode captures in #64, not with the snap click, which no longer captures.
+- `%app` and `%window` name the frontmost app unless the Selection carries window provenance, which a snap seed gives it and any edit drops ([ADR 0018](0018-window-provenance-is-visible-and-drops-on-edit.md)).

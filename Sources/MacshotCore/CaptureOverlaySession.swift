@@ -20,8 +20,27 @@ final class KeyableOverlayWindow: NSWindow {
 final class CaptureOverlaySession {
     struct Commit {
         let image: CGImage
+        /// What `%app` and `%window` expand to.
         let appName: String?
         let windowTitle: String?
+
+        /// A capture is filed under its window when the confirmed Selection
+        /// still carries window provenance — wholly, never mixed with the
+        /// fallback — and otherwise under the app that was frontmost when the
+        /// overlay opened (ADR 0018).
+        init(
+            image: CGImage, window: WindowCandidate?,
+            frontAppName: String?, frontWindowTitle: String?
+        ) {
+            self.image = image
+            if let window {
+                appName = window.applicationName
+                windowTitle = window.title
+            } else {
+                appName = frontAppName
+                windowTitle = frontWindowTitle
+            }
+        }
     }
 
     enum Outcome {
@@ -65,6 +84,12 @@ final class CaptureOverlaySession {
     /// Snap candidates, already filtered and z-order-deduplicated — computed
     /// once per capture, scanned per hover.
     private var snapCandidates: [WindowCandidate] = []
+    /// The windows behind `snapCandidates`, for capturing a window companion.
+    private var scWindowsByID: [UInt32: SCWindow] = [:]
+    /// The companion image for the window the Selection was last snapped to,
+    /// captured as soon as the snap seeds it so beautify can preview it; a
+    /// commit carrying that window waits for it (ADR 0018).
+    private var companion: (windowID: UInt32, task: Task<CGImage?, Never>)?
     private var frontAppName: String?
     private var frontAppPID: pid_t?
     private var frontWindowTitle: String?
@@ -84,7 +109,8 @@ final class CaptureOverlaySession {
 
     private func run() async -> Outcome {
         guard !screens.isEmpty else { return .cancelled }
-        // %app / %window context for every capture, snapshotted before
+        // The fallback %app / %window context, for every capture whose
+        // Selection carries no window (ADR 0018), snapshotted before
         // activation makes macshot itself frontmost.
         if let front = NSWorkspace.shared.frontmostApplication,
            front.bundleIdentifier != Bundle.main.bundleIdentifier {
@@ -165,11 +191,17 @@ final class CaptureOverlaySession {
                     id: window.windowID,
                     frame: window.frame,
                     bundleIdentifier: window.owningApplication?.bundleIdentifier,
+                    applicationName: window.owningApplication?.applicationName,
+                    title: window.title,
                     layer: window.windowLayer,
                     isOnScreen: window.isOnScreen
                 )
             },
             ownBundleID: ourBundle
+        )
+        scWindowsByID = Dictionary(
+            content.windows.map { ($0.windowID, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         Log.info("Window snap: \(snapCandidates.count) of \(content.windows.count) windows eligible")
         // The pointer may not move again before the click; highlight now.
@@ -194,7 +226,9 @@ final class CaptureOverlaySession {
             }
         }
         if let held = model.imageArrived(on: index) {
-            performCommit(on: held.display, rect: held.rect)
+            Task { [weak self] in
+                await self?.performCommit(on: held.display, rect: held.rect, window: held.window)
+            }
         }
     }
 
@@ -302,6 +336,9 @@ final class CaptureOverlaySession {
         view.onSnapHover = { [weak self] localPoint in
             self?.snapTarget(at: localPoint, for: index)
         }
+        view.onWindowSeeded = { [weak self] candidate in
+            self?.captureCompanion(of: candidate, for: index)
+        }
         view.onPointerMoved = { [weak self] in self?.pointerMoved(over: index) }
         view.onToolChosen = { [weak self] tool in self?.toolChosen(tool, from: index) }
     }
@@ -407,9 +444,13 @@ final class CaptureOverlaySession {
     // one whose frozen image has not landed yet.
 
     private func requestCommit(on index: Int, rect: CGRect) {
-        switch model.requestCommit(on: index, rect: rect) {
+        guard overlays.indices.contains(index) else { return }
+        let window = overlays[index].view.windowProvenance
+        switch model.requestCommit(on: index, rect: rect, window: window) {
         case .perform:
-            performCommit(on: index, rect: rect)
+            Task { [weak self] in
+                await self?.performCommit(on: index, rect: rect, window: window)
+            }
         case .held:
             Log.info("Commit on display \(index) held until its frozen image lands")
         case .ignored:
@@ -418,19 +459,69 @@ final class CaptureOverlaySession {
     }
 
     /// The one commit: bake this display's frozen image, annotations and all,
-    /// cropped to the confirmed Selection.
-    private func performCommit(on index: Int, rect: CGRect) {
+    /// cropped to the confirmed Selection. A Selection that still carries its
+    /// window waits for that window's companion image first, so a quick
+    /// `Return` composes the same as a slow one (ADR 0018).
+    private func performCommit(on index: Int, rect: CGRect, window: WindowCandidate?) async {
         guard overlays.indices.contains(index) else { return }
         let overlay = overlays[index]
+        if let window, let companion, companion.windowID == window.id,
+           let image = await companion.task.value {
+            overlay.view.setWindowCompanion(image, for: window)
+        }
         guard let image = overlay.view.bakedImage(croppingTo: rect) else {
             finish(.failed(CaptureError.captureFailed(BakeFailedError())))
             return
         }
         finish(.committed(Commit(
-            image: image,
-            appName: frontAppName,
-            windowTitle: frontWindowTitle
+            image: image, window: window,
+            frontAppName: frontAppName, frontWindowTitle: frontWindowTitle
         )))
+    }
+
+    // MARK: - Window companion
+
+    /// Window snap seeded the Selection on `index`: capture that window on its
+    /// own, shadow-free, so it comes back with transparent rounded corners for
+    /// beautify's backdrop to show through, and hand it to the overlay once it
+    /// lands. The view keeps it only while its Selection still carries that
+    /// window. Best effort — without it the capture composes from the frozen
+    /// screen like any other.
+    private func captureCompanion(of candidate: WindowCandidate, for index: Int) {
+        // Snapped to the same window again: the capture already made serves.
+        if companion?.windowID != candidate.id {
+            companion = scWindowsByID[candidate.id].map { scWindow in
+                (candidate.id, Task {
+                    do {
+                        return try await Self.captureSingleWindow(scWindow)
+                    } catch {
+                        Log.error("Window companion capture failed: \(error)")
+                        return nil
+                    }
+                })
+            }
+        }
+        guard let task = companion?.task else { return }
+        Task { [weak self] in
+            guard let image = await task.value, let self, !self.hasResumed,
+                  self.overlays.indices.contains(index)
+            else { return }
+            self.overlays[index].view.setWindowCompanion(image, for: candidate)
+        }
+    }
+
+    private static func captureSingleWindow(_ window: SCWindow) async throws -> CGImage {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let config = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        config.width = Int(filter.contentRect.width * scale)
+        config.height = Int(filter.contentRect.height * scale)
+        config.showsCursor = false
+        config.capturesAudio = false
+        config.ignoreShadowsSingleWindow = true
+        return try await SCScreenshotManager.captureImage(
+            contentFilter: filter, configuration: config
+        )
     }
 
     // MARK: - Resolution
