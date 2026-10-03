@@ -6,8 +6,12 @@ annotate, and route screenshots through automated post-capture actions.
 ## Language
 
 **Capture hotkey**:
-The single global shortcut that begins a capture. It carries no intent — it always presents the capture overlay, whatever the user means to capture.
+A user-defined entry that begins a capture. It has a name, an optional global shortcut, a Capture mode and a reference to the Pipeline it runs. There can be any number of them, including none. Each one appears in the menu bar with its shortcut, and an entry without a shortcut is reachable only there. It always presents the capture overlay. If its Pipeline has been deleted, it runs the first one. The colour picker and magnifier hotkeys are utilities, not capture hotkeys.
 _Avoid_: Capture shortcut, region hotkey, per-mode hotkey
+
+**Capture mode**:
+How a capture hotkey starts the capture overlay: Area (drag a Selection), Window (window snap armed) or Fullscreen (the display under the cursor already selected). It is only a starting point. Inside the overlay `Tab` and `F` still switch, and `Return` still confirms.
+_Avoid_: Capture type, region/window/fullscreen hotkey
 
 **Capture overlay**:
 The surface presented on every display when a capture begins. Opens idle — the frozen screen and a helper card, no tools — and hosts window snap, the Selection, and the annotation tools, which come up around the Selection once one exists. Confirming the Selection with `Return` is the only thing that captures; there is no separate window-picking UI, and no capture bypasses it.
@@ -90,7 +94,7 @@ The non-image UI the capture overlay floats above the frozen screenshot — tool
 _Avoid_: HUD, panel, controls
 
 **Pipeline**:
-A named, ordered list of actions executed after a capture is taken. Several can exist; each is defined once in Settings → Pipelines and referenced by its id, so one pipeline can serve many capture hotkeys. There is always at least one, and a fresh install has "Default" (copy image, save to disk). Until capture hotkeys choose one, every capture runs the first.
+A named, ordered list of actions executed after a capture is taken. Several can exist; each is defined once in Settings → Pipelines and referenced by its id, so one pipeline can serve many capture hotkeys. There is always at least one, and a fresh install has "Default" (copy image, save to disk). Each capture hotkey names the pipeline it runs.
 _Avoid_: Workflow, action chain
 
 **Pipeline action**:

@@ -21,10 +21,11 @@ enum CaptureError: LocalizedError {
 }
 
 enum CaptureService {
-    /// The one way a capture begins: present the capture overlay and let it
-    /// decide what gets captured (ADR 0010).
+    /// The one way a capture begins: present the capture overlay for a capture
+    /// entry, then run the entry's pipeline on what was confirmed (ADR 0017).
+    /// The entry's mode does not shape the overlay yet (#72).
     @MainActor
-    static func captureOverlay() async {
+    static func captureOverlay(_ hotkey: CaptureHotkey) async {
         guard screenRecordingAllowed() else {
             await notifyCaptureFailure(CaptureError.screenRecordingDenied)
             return
@@ -34,9 +35,8 @@ enum CaptureService {
             playFeedback()
             // Watermarked here, once: every pipeline action — and a second pass
             // through the editor — then works on the same finished image.
-            // Runs the first pipeline until capture hotkeys pick one (#71).
             let config = ConfigStore.shared.config
-            await PipelineRunner().run(config.pipelines[0], on: CaptureArtifact(
+            await PipelineRunner().run(config.pipeline(for: hotkey), on: CaptureArtifact(
                 image: Watermark.applied(to: commit.image, config.capture.watermark),
                 appName: commit.appName,
                 windowTitle: commit.windowTitle

@@ -115,33 +115,148 @@ struct PermissionsSettingsTab: View {
 
 // MARK: - Hotkeys
 
+extension ConfigStore {
+    /// Edits the hotkeys and re-registers them, so every change takes effect
+    /// without a restart.
+    func updateHotkeys(_ mutate: (inout HotkeySettings) -> Void) {
+        update { mutate(&$0.hotkeys) }
+        HotkeyManager.shared.apply(config.hotkeys)
+    }
+}
+
 struct HotkeysSettingsTab: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
+        let hotkeys = store.config.hotkeys
         Form {
-            ForEach(HotkeyAction.allCases, id: \.self) { action in
-                HotkeyRecorderRow(action: action, store: store)
+            Section("Capture") {
+                ForEach(hotkeys.captures) { hotkey in
+                    CaptureHotkeyRow(hotkey: hotkey, store: store)
+                }
+                Button("Add Capture Hotkey") { add() }
             }
-            let conflicts = store.config.hotkeys.conflicts()
+            Section("Utilities") {
+                ForEach([HotkeyAction.colorPicker, .magnifier], id: \.self) { action in
+                    HStack {
+                        Text(hotkeys.label(for: action))
+                        Spacer()
+                        HotkeyRecorder(action: action, store: store)
+                    }
+                }
+            }
+            let conflicts = hotkeys.conflicts()
             if !conflicts.isEmpty {
                 Label(
                     conflicts
-                        .map { "\($0.0.label) and \($0.1.label) share the same shortcut" }
+                        .map {
+                            "\(hotkeys.label(for: $0.0)) and \(hotkeys.label(for: $0.1)) "
+                                + "share the same shortcut"
+                        }
                         .joined(separator: "\n"),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .foregroundStyle(.orange)
             }
-            Text("Click a shortcut, then press the new key combination. Esc cancels.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(
+                "Each capture hotkey opens the overlay in its mode and runs its pipeline. "
+                + "Click a shortcut, then press the new key combination. Esc cancels."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
         }
         .padding(20)
     }
+
+    private func add() {
+        var hotkey = CaptureHotkey()
+        hotkey.name = "New capture"
+        hotkey.pipelineID = store.config.pipelines[0].id
+        store.updateHotkeys { $0.captures.append(hotkey) }
+    }
 }
 
-struct HotkeyRecorderRow: View {
+/// One capture entry: name, shortcut, starting mode and pipeline, plus
+/// reorder and delete. Edits go by id, so a row never writes to a stale index.
+struct CaptureHotkeyRow: View {
+    let hotkey: CaptureHotkey
+    @ObservedObject var store: ConfigStore
+
+    var body: some View {
+        let captures = store.config.hotkeys.captures
+        let index = captures.firstIndex { $0.id == hotkey.id } ?? 0
+        let pipelines = store.config.pipelines
+        let dangling = !pipelines.contains { $0.id == hotkey.pipelineID }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Name", text: Binding(
+                    get: { hotkey.name },
+                    set: { name in edit { $0.name = name } }
+                ))
+                .labelsHidden()
+                HotkeyRecorder(action: .capture(hotkey.id), store: store)
+                Button {
+                    store.updateHotkeys { $0.captures.swapAt(index, index - 1) }
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .disabled(index == 0)
+                Button {
+                    store.updateHotkeys { $0.captures.swapAt(index, index + 1) }
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .disabled(index == captures.count - 1)
+                Button {
+                    store.updateHotkeys { $0.captures.removeAll { $0.id == hotkey.id } }
+                } label: {
+                    Image(systemName: "trash")
+                }
+            }
+            .buttonStyle(.borderless)
+            HStack {
+                Picker("Mode", selection: Binding(
+                    get: { hotkey.mode },
+                    set: { mode in edit { $0.mode = mode } }
+                )) {
+                    ForEach(CaptureMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                Picker("Pipeline", selection: Binding(
+                    get: { hotkey.pipelineID },
+                    set: { id in edit { $0.pipelineID = id } }
+                )) {
+                    ForEach(pipelines) { pipeline in
+                        Text(pipeline.name).tag(pipeline.id)
+                    }
+                    if dangling {
+                        Text("— deleted —").tag(hotkey.pipelineID)
+                    }
+                }
+            }
+            if dangling {
+                Label(
+                    "Its pipeline was deleted, so it runs “\(pipelines[0].name)” instead.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func edit(_ mutate: (inout CaptureHotkey) -> Void) {
+        store.updateHotkeys { hotkeys in
+            guard let index = hotkeys.captures.firstIndex(where: { $0.id == hotkey.id })
+            else { return }
+            mutate(&hotkeys.captures[index])
+        }
+    }
+}
+
+/// Click-to-record shortcut button with a clear button beside it.
+struct HotkeyRecorder: View {
     let action: HotkeyAction
     @ObservedObject var store: ConfigStore
     @State private var recording = false
@@ -149,15 +264,12 @@ struct HotkeyRecorderRow: View {
 
     var body: some View {
         HStack {
-            Text(action.label)
-            Spacer()
             Button(recording ? "Press keys…" : currentLabel) {
                 recording ? stopRecording() : startRecording()
             }
             .frame(minWidth: 110)
             Button {
-                store.update { $0.hotkeys.setBinding(nil, for: action) }
-                HotkeyManager.shared.apply(store.config.hotkeys)
+                store.updateHotkeys { $0.setBinding(nil, for: action) }
             } label: {
                 Image(systemName: "xmark.circle.fill")
             }
@@ -187,8 +299,7 @@ struct HotkeyRecorderRow: View {
                 keyCode: UInt32(event.keyCode),
                 carbonModifiers: modifiers
             )
-            store.update { $0.hotkeys.setBinding(binding, for: action) }
-            HotkeyManager.shared.apply(store.config.hotkeys)
+            store.updateHotkeys { $0.setBinding(binding, for: action) }
             stopRecording()
             return nil
         }
@@ -407,9 +518,10 @@ struct PipelinesSettingsTab: View {
                                 )
                             }
                             Text(
-                                "Actions run top to bottom. Captures run the first pipeline "
-                                + "in the list. If an action fails, the pipeline stops and "
-                                + "shows a notification with a Retry option."
+                                "Actions run top to bottom. Each capture hotkey picks the "
+                                + "pipeline it runs in Settings → Hotkeys. If an action fails, "
+                                + "the pipeline stops and shows a notification with a Retry "
+                                + "option."
                             )
                             .font(.callout)
                             .foregroundStyle(.secondary)

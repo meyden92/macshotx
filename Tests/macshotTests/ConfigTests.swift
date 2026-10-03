@@ -38,7 +38,11 @@ func configRoundTripsThroughJSON() throws {
     destination.kind = .s3
     destination.s3.bucket = "shots"
     config.destinations = [destination]
-    config.hotkeys.capture = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
+    var clipboardHotkey = CaptureHotkey()
+    clipboardHotkey.name = "Window to clipboard"
+    clipboardHotkey.mode = .window
+    clipboardHotkey.pipelineID = clipboardOnly.id
+    config.hotkeys.captures.append(clipboardHotkey) // unbound
     config.counters = ["/tmp/shots": 12]
     config.recents = ["/tmp/shots/a.png"]
 
@@ -156,4 +160,73 @@ func recentsAreCappedAtTen() {
     }
     #expect(store.config.recents.count == 10)
     #expect(store.config.recents.first == "/tmp/shot-14.png")
+}
+
+// MARK: - Capture hotkeys
+
+@Test
+func aV110ConfigLoadsItsCaptureHotkeyAsCaptureArea() throws {
+    // v1.0.0–v1.1.0 had one binding at `hotkeys.capture` and one pipeline.
+    let json = """
+    {
+      "pipeline": { "global": [ { "type": "copyImage" } ] },
+      "hotkeys": { "capture": { "keyCode": 18, "carbonModifiers": 256 } }
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+    #expect(config.hotkeys.captures.count == 1)
+    let entry = try #require(config.hotkeys.captures.first)
+    #expect(entry.name == "Capture area")
+    #expect(entry.mode == .area)
+    #expect(entry.binding == HotkeyBinding(keyCode: 18, carbonModifiers: 256))
+    #expect(entry.pipelineID == config.pipelines[0].id)
+    #expect(config.pipelines[0].name == "Default")
+}
+
+@Test
+func aFreshConfigHasOneCaptureAreaEntryOnControlShift4() throws {
+    let entry = try #require(AppConfig().hotkeys.captures.first)
+    #expect(AppConfig().hotkeys.captures.count == 1)
+    #expect(entry.name == "Capture area")
+    #expect(entry.mode == .area)
+    #expect(entry.binding == HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200))
+    #expect(entry.pipelineID == Pipeline.defaultID)
+}
+
+@Test
+func anEmptyCaptureHotkeyListStaysEmpty() throws {
+    // Unlike pipelines, having no capture hotkeys is a valid choice.
+    let config = try JSONDecoder().decode(
+        AppConfig.self, from: Data(#"{ "hotkeys": { "captures": [] } }"#.utf8)
+    )
+    #expect(config.hotkeys.captures.isEmpty)
+}
+
+@Test
+func anEntryRunsItsOwnPipeline() {
+    var config = AppConfig()
+    var clipboardOnly = Pipeline()
+    clipboardOnly.name = "Clipboard only"
+    config.pipelines.append(clipboardOnly)
+    var entry = CaptureHotkey()
+    entry.pipelineID = clipboardOnly.id
+    #expect(config.pipeline(for: entry).name == "Clipboard only")
+    #expect(config.pipeline(for: config.hotkeys.captures[0]).name == "Default")
+}
+
+@Test
+func anEntryWhosePipelineWasDeletedRunsTheFirstAndKeepsItsReference() throws {
+    var config = AppConfig()
+    var gone = Pipeline()
+    gone.name = "Gone"
+    config.pipelines.append(gone)
+    config.hotkeys.captures[0].pipelineID = gone.id
+    config.pipelines.removeAll { $0.id == gone.id }
+
+    // Survives a save and reload untouched, so Settings can flag it.
+    let reloaded = try JSONDecoder().decode(
+        AppConfig.self, from: JSONEncoder().encode(config)
+    )
+    #expect(reloaded.hotkeys.captures[0].pipelineID == gone.id)
+    #expect(reloaded.pipeline(for: reloaded.hotkeys.captures[0]).name == "Default")
 }

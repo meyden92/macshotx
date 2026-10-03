@@ -26,11 +26,16 @@ struct MenuContent: View {
     var body: some View {
         // Each entry advertises its configured global hotkey (Settings →
         // Hotkeys), not a menu-only combination: nil binding, no shortcut drawn.
-        Button("Capture") {
-            Task { await CaptureService.captureOverlay() }
+        let hotkeys = store.config.hotkeys
+        if !hotkeys.captures.isEmpty {
+            ForEach(hotkeys.captures) { hotkey in
+                Button(hotkeys.label(for: .capture(hotkey.id))) {
+                    Task { await CaptureService.captureOverlay(hotkey) }
+                }
+                .keyboardShortcut(hotkey.binding?.menuShortcut)
+            }
+            Divider()
         }
-        .keyboardShortcut(store.config.hotkeys.capture?.menuShortcut)
-        Divider()
         Button("Pick Color") {
             Task { await ColorSampler.run(copyToClipboard: true) }
         }
@@ -99,8 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     static func perform(_ action: HotkeyAction) {
         switch action {
-        case .capture:
-            Task { await CaptureService.captureOverlay() }
+        case .capture(let id):
+            // Looked up at fire time, so a rename or a new pipeline applies
+            // without re-registering.
+            guard let hotkey = ConfigStore.shared.config.hotkeys.captures
+                .first(where: { $0.id == id }) else { return }
+            Task { await CaptureService.captureOverlay(hotkey) }
         case .colorPicker:
             Task { await ColorSampler.run(copyToClipboard: true) }
         case .magnifier:

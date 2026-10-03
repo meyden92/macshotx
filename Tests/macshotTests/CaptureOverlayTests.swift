@@ -120,13 +120,6 @@ func sessionResolvesExactlyOnce() {
 // MARK: - Hotkey actions
 
 @Test
-func thereIsOneCaptureHotkeyAndTwoUtilityHotkeys() {
-    // No entry point can pre-arm snap or pick what gets captured: the only
-    // capture action there is opens the overlay (ADR 0010).
-    #expect(HotkeyAction.allCases == [.capture, .colorPicker, .magnifier])
-}
-
-@Test
 func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() throws {
     let legacy = """
     {

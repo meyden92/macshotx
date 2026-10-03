@@ -1,5 +1,7 @@
 # There are no capture modes; one pipeline runs after every capture
 
+> **Superseded in part by ADR 0017 (2026-10-03).** Capture modes are back as the starting mode of a capture hotkey: Area, Window or Fullscreen. The pipeline now follows the hotkey, not the mode. The provenance half of this record still stands until #64.
+
 > **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing, so provenance does not reopen on that route; #64 brings it back with Window-mode captures instead.
 
 > **Superseded in part by ADR 0015 (2026-10-03).** "One pipeline runs after every capture" no longer holds: pipelines are named and several can exist, each referenced by id. The capture-mode and provenance half of this record is unaffected by that change.

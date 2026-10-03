@@ -11,18 +11,40 @@ func hotkeyConflictsDetected() {
     var settings = HotkeySettings()
     #expect(settings.conflicts().isEmpty, "Default bindings must not conflict")
 
-    settings.magnifier = settings.capture
+    settings.magnifier = settings.captures[0].binding
     let conflicts = settings.conflicts()
     #expect(conflicts.count == 1)
-    #expect(conflicts.first?.0 == .capture)
+    #expect(conflicts.first?.0 == .capture(CaptureHotkey.defaultID))
     #expect(conflicts.first?.1 == .magnifier)
+}
+
+@Test
+func hotkeyConflictsCoverEveryPairOfCaptureEntries() {
+    let shared = HotkeyBinding(keyCode: 18, carbonModifiers: 0x100)
+    var settings = HotkeySettings()
+    var second = CaptureHotkey()
+    second.binding = shared
+    var third = CaptureHotkey()
+    third.binding = shared
+    var unbound = CaptureHotkey()
+    unbound.binding = nil
+    settings.captures += [second, third, unbound]
+    settings.colorPicker = shared
+
+    let pairs = settings.conflicts().map { [$0.0, $0.1] }
+    #expect(pairs == [
+        [.capture(second.id), .capture(third.id)],
+        [.capture(second.id), .colorPicker],
+        [.capture(third.id), .colorPicker]
+    ])
 }
 
 @Test
 func hotkeyBindingAccessorsRoundTrip() {
     var settings = HotkeySettings()
     let binding = HotkeyBinding(keyCode: 99, carbonModifiers: 0x100)
-    for action in HotkeyAction.allCases {
+    #expect(settings.actions == [.capture(CaptureHotkey.defaultID), .colorPicker, .magnifier])
+    for action in settings.actions {
         settings.setBinding(binding, for: action)
         #expect(settings.binding(for: action) == binding)
         settings.setBinding(nil, for: action)

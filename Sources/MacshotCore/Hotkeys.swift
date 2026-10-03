@@ -2,24 +2,35 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-enum HotkeyAction: String, CaseIterable, Sendable {
-    case capture
+/// What a registered hotkey triggers: one of the user's capture entries, by
+/// id, or one of the two fixed utilities.
+enum HotkeyAction: Hashable, Sendable {
+    case capture(CaptureHotkey.ID)
     case colorPicker
     case magnifier
+}
 
-    var label: String {
-        switch self {
-        case .capture: return "Capture"
+extension HotkeySettings {
+    /// Every action that can carry a binding: the capture entries in list
+    /// order, then the utilities.
+    var actions: [HotkeyAction] {
+        captures.map { .capture($0.id) } + [.colorPicker, .magnifier]
+    }
+
+    /// The name Settings, the menu bar and onboarding show for an action.
+    func label(for action: HotkeyAction) -> String {
+        switch action {
+        case .capture(let id):
+            let name = captures.first { $0.id == id }?.name ?? ""
+            return name.isEmpty ? "Unnamed capture" : name
         case .colorPicker: return "Pick Color"
         case .magnifier: return "Magnifier"
         }
     }
-}
 
-extension HotkeySettings {
     func binding(for action: HotkeyAction) -> HotkeyBinding? {
         switch action {
-        case .capture: return capture
+        case .capture(let id): return captures.first { $0.id == id }?.binding
         case .colorPicker: return colorPicker
         case .magnifier: return magnifier
         }
@@ -27,16 +38,19 @@ extension HotkeySettings {
 
     mutating func setBinding(_ binding: HotkeyBinding?, for action: HotkeyAction) {
         switch action {
-        case .capture: capture = binding
+        case .capture(let id):
+            guard let index = captures.firstIndex(where: { $0.id == id }) else { return }
+            captures[index].binding = binding
         case .colorPicker: colorPicker = binding
         case .magnifier: magnifier = binding
         }
     }
 
-    /// Actions that share the same key combination (settings UI warns on these).
+    /// Every pair of actions that share a key combination, in `actions`
+    /// order (settings UI warns on these).
     func conflicts() -> [(HotkeyAction, HotkeyAction)] {
         var result: [(HotkeyAction, HotkeyAction)] = []
-        let actions = HotkeyAction.allCases
+        let actions = actions
         for (i, a) in actions.enumerated() {
             guard let bindingA = binding(for: a) else { continue }
             for b in actions.dropFirst(i + 1) {
@@ -169,8 +183,9 @@ final class HotkeyManager {
     private var eventHandlerInstalled = false
     private static let signature: OSType = 0x6D736874 // 'msht'
 
-    /// (Re)register all bindings; returns actions whose registration failed
-    /// (typically: combination already taken by another app).
+    /// (Re)register every bound capture entry and utility; returns the actions
+    /// whose registration failed (typically: combination already taken by
+    /// another app).
     @discardableResult
     func apply(_ settings: HotkeySettings) -> [HotkeyAction] {
         installEventHandlerIfNeeded()
@@ -181,7 +196,7 @@ final class HotkeyManager {
         actions.removeAll()
 
         var failed: [HotkeyAction] = []
-        for action in HotkeyAction.allCases {
+        for action in settings.actions {
             guard let binding = settings.binding(for: action) else { continue }
             let id = nextID
             nextID += 1
@@ -199,7 +214,7 @@ final class HotkeyManager {
                 actions[id] = action
             } else {
                 failed.append(action)
-                Log.error("Could not register hotkey for \(action.rawValue) (status \(status))")
+                Log.error("Could not register hotkey for \(settings.label(for: action)) (status \(status))")
             }
         }
         return failed

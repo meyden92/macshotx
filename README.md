@@ -21,9 +21,9 @@ product specification.
 - **Post-capture editor** with the same toolset plus rectangular crop.
 - **Pipeline automation** — named, reusable pipelines, each an ordered action
   list run after a capture: open in editor, copy image, save to disk, upload,
-  copy URL, run shell command, open in app, extract text (OCR). Captures run
-  the first pipeline in Settings → Pipelines. Failures halt the pipeline with a
-  Retry notification (bitmap held for 60 s).
+  copy URL, run shell command, open in app, extract text (OCR). Each capture
+  hotkey picks the pipeline it runs. Failures halt the pipeline with a Retry
+  notification (bitmap held for 60 s).
 - **Filename templates** — ShareX-style tokens: `%y %mo %d %h %mi %s %ms
   %counter %window %app %host %user %uuid %rand:N`, with live preview
   and per-folder counters.
@@ -33,8 +33,11 @@ product specification.
   `{response}` response parsing). Secrets live in the macOS Keychain.
 - **Utilities** — on-device OCR (Apple Vision), color picker with magnifier
   loupe (hex/RGB/HSL), standalone magnifier.
-- **Global hotkeys** — one for capture, one per utility, rebindable in
-  Settings (no Accessibility permission needed).
+- **Global hotkeys** — as many capture hotkeys as you like, each with a name,
+  a starting mode (Area, Window or Fullscreen) and its own pipeline, so one
+  shortcut can copy to the clipboard while another saves and uploads. Plus one
+  per utility. All rebindable in Settings → Hotkeys, and every capture hotkey
+  is listed in the menu bar (no Accessibility permission needed).
 - **Zero telemetry.** The only network calls are uploads you configure.
 - Config is plain JSON at `~/Library/Application Support/macshot/config.json`;
   export/import as a bundle, optionally with secrets and passphrase encryption.
@@ -44,9 +47,12 @@ product specification.
 
 | Action | Hotkey |
 |---|---|
-| Capture | ⌃⇧4 |
+| Capture area (runs "Default") | ⌃⇧4 |
 | Pick color | ⌃⇧C |
 | Magnifier | ⌃⇧M |
+
+Add, rename, reorder or delete capture hotkeys in Settings → Hotkeys. A
+config from v1.1.0 or earlier keeps its capture binding as "Capture area".
 
 ## Requirements
 
