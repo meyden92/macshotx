@@ -34,13 +34,14 @@ final class CaptureOverlaySession {
     /// is already up is a no-op rather than a second set of overlays.
     private static weak var active: CaptureOverlaySession?
 
-    static func run() async -> Outcome {
+    /// Presents the overlay in `mode`'s starting state (ADR 0017).
+    static func run(mode: CaptureMode) async -> Outcome {
         guard active == nil else {
             Log.info("Capture requested while a session is already up; ignored")
             return .cancelled
         }
-        Log.info("Capture session starting on \(NSScreen.screens.count) screen(s)")
-        let session = CaptureOverlaySession()
+        Log.info("Capture session starting in \(mode.rawValue) mode on \(NSScreen.screens.count) screen(s)")
+        let session = CaptureOverlaySession(mode: mode)
         active = session
         defer { if active === session { active = nil } }
         return await session.run()
@@ -70,12 +71,15 @@ final class CaptureOverlaySession {
     private var continuation: CheckedContinuation<Outcome, Never>?
     private var hasResumed = false
 
-    private init() {
+    private init(mode: CaptureMode) {
         let screens = NSScreen.screens
         self.screens = screens
-        // Snap starts armed (ADR 0016); the model carries that default so it is
-        // pinned by its own tests.
-        self.model = CaptureSessionModel(displayCount: screens.count)
+        // The mode's starting state lives in the model so it is pinned by the
+        // model's own tests.
+        self.model = CaptureSessionModel(
+            displayCount: screens.count, mode: mode,
+            displayUnderCursor: Self.displayUnderCursor(in: screens)
+        )
     }
 
     private func run() async -> Outcome {
@@ -278,6 +282,12 @@ final class CaptureOverlaySession {
         keyWindowUnderCursor()
         NSCursor.crosshair.set()
         pushSnapState()
+        // Fullscreen: seed the display the model starts on, exactly as `F`
+        // would. Usually no frozen image exists yet; a `Return` before it
+        // lands is held by the model like any other.
+        if let owner = model.selectionOwner, overlays.indices.contains(owner) {
+            overlays[owner].view.selectWholeDisplay()
+        }
     }
 
     private func wire(_ view: RegionPickerView, at index: Int) {
@@ -315,17 +325,20 @@ final class CaptureOverlaySession {
         )
     }
 
-    /// Index of the overlay whose screen contains the pointer.
-    private func overlayIndexUnderCursor() -> Int? {
+    /// Index of the display whose screen contains the pointer, falling back
+    /// to the first. Its overlay is the key one, so this is also the display
+    /// `F` seeds. Overlays are indexed like `screens`.
+    private static func displayUnderCursor(in screens: [NSScreen]) -> Int {
         let mouse = NSEvent.mouseLocation
-        return overlays.firstIndex { NSPointInRect(mouse, $0.screen.frame) }
+        return screens.firstIndex { NSPointInRect(mouse, $0.frame) } ?? 0
     }
 
     /// Keys the overlay under the pointer so keyboard input follows the
     /// display the user is looking at.
     private func keyWindowUnderCursor() {
-        let overlay = overlayIndexUnderCursor().map { overlays[$0] } ?? overlays.first
-        overlay?.window.makeKey()
+        let index = Self.displayUnderCursor(in: screens)
+        guard overlays.indices.contains(index) else { return }
+        overlays[index].window.makeKey()
     }
 
     private func pointerMoved(over index: Int) {

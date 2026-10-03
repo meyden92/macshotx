@@ -220,7 +220,7 @@ func fWhileIdleSelectsTheWholeDisplayAndWithASelectionUpItIsTheFillRectTool() {
     view.onCommitRequested = { requested = $0 }
     view.onSelectionActivity = { activity.append($0) }
 
-    view.selectWholeDisplay()
+    view.keyDown(with: key("f", 3, window))
     #expect(requested == nil, "F seeds; it does not capture")
     #expect(activity == [true])
     #expect(activeTool(of: view) == .select)
@@ -346,6 +346,31 @@ func selectionSurvivesUntilTheImageArrivesAndThenBakes() {
     let baked = rect.flatMap { view.bakedImage(croppingTo: $0) }
     #expect(baked?.width == 100)
     #expect(baked?.height == 100)
+}
+
+@MainActor
+@Test
+func aFullscreenStartSeededBeforeTheImageLandsHasToolsUpAndConfirmsTheDisplay() {
+    // The session seeds Fullscreen as the overlay appears, before any pixels.
+    let (view, window) = makeOverlayView(image: nil)
+    var requested: NSRect?
+    var activity: [Bool] = []
+    view.onCommitRequested = { requested = $0 }
+    view.onSelectionActivity = { activity.append($0) }
+
+    view.selectWholeDisplay()
+    #expect(!view.isIdle)
+    #expect(activity == [true])
+    #expect(toolbar(of: view)?.isHidden == false, "Tools come up with the Selection")
+    view.keyDown(with: key("f", 3, window))
+    #expect(activeTool(of: view) == .fillRect, "With a Selection up, F is the fill-rect tool")
+
+    view.keyDown(with: key("\r", 36, window))
+    #expect(requested == view.bounds)
+    view.installFrozenImage(makeImage())
+    let baked = requested.flatMap { view.bakedImage(croppingTo: $0) }
+    #expect(baked?.width == 200)
+    #expect(baked?.height == 200)
 }
 
 @MainActor

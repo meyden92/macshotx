@@ -398,6 +398,12 @@ final class RegionPickerView: NSView {
         }
     }
 
+    /// `F` while idle: the whole display becomes the Selection. A Fullscreen
+    /// capture starts the same way, seeded by the session (ADR 0017).
+    func selectWholeDisplay() {
+        seedSelection(bounds)
+    }
+
     /// Seeds the Selection from a route that is not a drag: `F` while idle,
     /// or a click on a snapped window. What comes out is an ordinary
     /// Selection — movable, resizable, annotatable — and nothing is captured
@@ -2558,7 +2564,7 @@ final class RegionPickerView: NSView {
             // other tool shortcut waits for a Selection, and so does `F`'s own
             // fill-rect tool (ADR 0016).
             if isIdle, key == "f" {
-                seedSelection(bounds)
+                selectWholeDisplay()
                 return
             }
             let tool = Tool.allCases.first { !$0.keyEquivalent.isEmpty && $0.keyEquivalent == key }

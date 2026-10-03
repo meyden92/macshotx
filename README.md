@@ -10,10 +10,10 @@ product specification.
 ## Features
 
 - **One capture overlay, selection first** — the screen freezes on every
-  display. Drag a selection, click a window (highlighted as you hover; Tab
-  turns snap off), or press `F` for the whole display. All three land on the
-  same adjustable selection — move it, resize it, nudge it, type an exact
-  size — with the annotation tools around it: arrows, shapes, text, callouts,
+  display. Drag a selection, click a window (highlighted as you hover while
+  window snap is on; Tab toggles it), or press `F` for the whole display. All
+  three land on the same adjustable selection — move it, resize it, nudge it,
+  type an exact size — with the annotation tools around it: arrows, shapes, text, callouts,
   step markers, blur/pixelate/solid redactions and a magic eraser that paints
   a region out in the colour under the cursor. Return captures, Esc cancels;
   nothing else does. Undo/redo, per-annotation move/resize, per-tool styles
@@ -34,8 +34,10 @@ product specification.
 - **Utilities** — on-device OCR (Apple Vision), color picker with magnifier
   loupe (hex/RGB/HSL), standalone magnifier.
 - **Global hotkeys** — as many capture hotkeys as you like, each with a name,
-  a starting mode (Area, Window or Fullscreen) and its own pipeline, so one
-  shortcut can copy to the clipboard while another saves and uploads. Plus one
+  a starting mode and its own pipeline, so one shortcut can copy to the
+  clipboard while another saves and uploads. Area opens ready to drag, Window
+  with window snap on, Fullscreen with the display under the cursor already
+  selected; Tab and `F` still switch inside the overlay. Plus one
   per utility. All rebindable in Settings → Hotkeys, and every capture hotkey
   is listed in the menu bar (no Accessibility permission needed).
 - **Zero telemetry.** The only network calls are uploads you configure.

@@ -10,7 +10,7 @@ A user-defined entry that begins a capture. It has a name, an optional global sh
 _Avoid_: Capture shortcut, region hotkey, per-mode hotkey
 
 **Capture mode**:
-How a capture hotkey starts the capture overlay: Area (drag a Selection), Window (window snap armed) or Fullscreen (the display under the cursor already selected). It is only a starting point. Inside the overlay `Tab` and `F` still switch, and `Return` still confirms.
+How a capture hotkey starts the capture overlay. Area opens idle with window snap off, ready to drag a Selection. Window opens idle with window snap armed, so clicking a window seeds the Selection to it. Fullscreen opens with the display under the cursor already selected and the tools up, as if `F` had been pressed. It is only a starting point. Inside the overlay `Tab` and `F` still switch, and `Return` still confirms.
 _Avoid_: Capture type, region/window/fullscreen hotkey
 
 **Capture overlay**:

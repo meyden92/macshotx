@@ -28,12 +28,15 @@ struct CaptureSessionModel: Equatable {
     private(set) var heldCommit: HeldCommit?
     private(set) var resolution: Resolution = .pending
 
-    /// Window snap starts armed on every capture: pointing at a window and
-    /// clicking it is the quickest way to a Selection, and it must not need a
-    /// `Tab` first (ADR 0016).
-    init(displayCount: Int, snapArmed: Bool = true) {
-        self.snapArmed = snapArmed
+    /// The capture hotkey's mode is where the session starts (ADR 0017): Area
+    /// idle with snap off, Window idle with snap armed, Fullscreen with
+    /// `displayUnderCursor` already owning a whole-display Selection — which
+    /// the session then seeds on that display's overlay by `F`'s route. From
+    /// there `Tab` and `F` switch as in any other mode.
+    init(displayCount: Int, mode: CaptureMode, displayUnderCursor: Int) {
+        self.snapArmed = mode == .window
         self.imageReady = Array(repeating: false, count: displayCount)
+        if mode == .fullscreen { selectionOwner = displayUnderCursor }
     }
 
     /// Selection activity began on a display. Returns the displays whose
