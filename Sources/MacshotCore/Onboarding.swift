@@ -146,7 +146,7 @@ struct OnboardingView: View {
             }
             Text(
                 "Every capture is copied to the clipboard and saved here by "
-                + "default. Change the pipeline later in Settings → Pipeline."
+                + "default. Change the pipeline later in Settings → Pipelines."
             )
             .font(.callout)
             .foregroundStyle(.secondary)

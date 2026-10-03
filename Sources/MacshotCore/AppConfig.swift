@@ -68,20 +68,39 @@ extension PipelineAction: Codable {
     }
 }
 
-/// The one pipeline, run after every capture. Nothing distinguishes captures
-/// from one another any more, so there is nothing to override it for
-/// (ADR 0012); the stored key stays `global` so a config written back when
-/// overrides existed keeps its action list.
-struct PipelineSettings: Equatable, Codable, Sendable {
-    var actions: [PipelineAction] = [.copyImage, .saveToDisk]
+/// A named, ordered action list run after a capture. Several can exist; each
+/// is defined once in Settings and referenced by its `id`, so a rename never
+/// breaks a reference (ADR 0015).
+struct Pipeline: Equatable, Codable, Identifiable, Sendable {
+    /// The id of the "Default" pipeline a fresh or migrated config starts
+    /// with. Fixed rather than random so that decoding the same config twice
+    /// yields equal values.
+    static let defaultID = UUID(uuidString: "5C1A3D4E-0B7F-4C2A-9E61-8D3F2A7B0C15")!
+
+    /// What a fresh install runs: copy to the clipboard, then save to disk.
+    static let `default` = Pipeline(
+        id: defaultID, name: "Default", actions: [.copyImage, .saveToDisk]
+    )
+
+    var id = UUID()
+    var name = ""
+    var actions: [PipelineAction] = []
 
     init() {}
 
-    private enum CodingKeys: String, CodingKey { case actions = "global" }
+    init(id: UUID, name: String, actions: [PipelineAction]) {
+        self.id = id
+        self.name = name
+        self.actions = actions
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, actions }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        actions = c.decodeOr(.actions, [.copyImage, .saveToDisk])
+        id = c.decodeOr(.id, UUID())
+        name = c.decodeOr(.name, "")
+        actions = c.decodeOr(.actions, [])
     }
 }
 
@@ -569,7 +588,8 @@ struct AppConfig: Equatable, Codable, Sendable {
     var general = GeneralSettings()
     var capture = CaptureSettings()
     var filenames = FilenameSettings()
-    var pipeline = PipelineSettings()
+    /// Never empty: decoding falls back to `Pipeline.default`.
+    var pipelines = [Pipeline.default]
     var destinations: [Destination] = []
     var hotkeys = HotkeySettings()
     var editorStyles = EditorStyles()
@@ -583,16 +603,20 @@ struct AppConfig: Equatable, Codable, Sendable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case general, capture, filenames, pipeline, destinations
+        case general, capture, filenames, pipelines, destinations
         case hotkeys, editorStyles, beautify, selection, counters, recents
     }
+
+    /// v1.0.0–v1.1.0 kept a single action list at `pipeline.global`.
+    private enum LegacyKeys: String, CodingKey { case pipeline }
+    private struct LegacyPipeline: Decodable { var global: [PipelineAction] }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         general = c.decodeOr(.general, GeneralSettings())
         capture = c.decodeOr(.capture, CaptureSettings())
         filenames = c.decodeOr(.filenames, FilenameSettings())
-        pipeline = c.decodeOr(.pipeline, PipelineSettings())
+        pipelines = Self.decodePipelines(c, try decoder.container(keyedBy: LegacyKeys.self))
         destinations = c.decodeOr(.destinations, [])
         hotkeys = c.decodeOr(.hotkeys, HotkeySettings())
         editorStyles = c.decodeOr(.editorStyles, EditorStyles())
@@ -600,5 +624,23 @@ struct AppConfig: Equatable, Codable, Sendable {
         selection = c.decodeOr(.selection, SelectionPrefs())
         counters = c.decodeOr(.counters, [:])
         recents = c.decodeOr(.recents, [])
+    }
+
+    /// The named list if there is one, else the legacy action list carried
+    /// over as "Default", else the fresh default.
+    private static func decodePipelines(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        _ legacy: KeyedDecodingContainer<LegacyKeys>
+    ) -> [Pipeline] {
+        if let pipelines = try? c.decodeIfPresent([Pipeline].self, forKey: .pipelines),
+           !pipelines.isEmpty {
+            return pipelines
+        }
+        if let old = try? legacy.decodeIfPresent(LegacyPipeline.self, forKey: .pipeline) {
+            var migrated = Pipeline.default
+            migrated.actions = old.global
+            return [migrated]
+        }
+        return [.default]
     }
 }

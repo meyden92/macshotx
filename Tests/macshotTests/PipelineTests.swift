@@ -31,6 +31,10 @@ private func makeStore() -> (ConfigStore, URL) {
     return (store, dir)
 }
 
+private func testPipeline(_ actions: [PipelineAction]) -> Pipeline {
+    Pipeline(id: UUID(), name: "Test", actions: actions)
+}
+
 private func artifact() -> CaptureArtifact {
     CaptureArtifact(
         image: makeImage(),
@@ -62,10 +66,10 @@ func encoderProducesAllFormats() throws {
 func saveActionWritesFileAndRecordsRecent() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.actions = [.saveToDisk] }
+    let pipeline = testPipeline([.saveToDisk])
 
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact())
+    let outcome = try await runner.execute(pipeline, on: artifact())
 
     let saved = try #require(outcome.savedURL)
     #expect(saved.lastPathComponent == "shot_TestApp.png")
@@ -75,15 +79,29 @@ func saveActionWritesFileAndRecordsRecent() async throws {
 
 @MainActor
 @Test
+func runsThePipelineItIsHandedNotTheFirstConfigured() async throws {
+    let (store, dir) = makeStore()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    store.update { $0.pipelines = [testPipeline([.copyURL]), testPipeline([.copyImage])] }
+    let pipeline = testPipeline([.saveToDisk])
+
+    let runner = PipelineRunner(store: store)
+    // The configured pipelines would throw (copyURL) or not save at all.
+    let outcome = try await runner.execute(pipeline, on: artifact())
+    #expect(outcome.savedURL != nil)
+}
+
+@MainActor
+@Test
 func saveAvoidsCollisionsWithSuffix() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.actions = [.saveToDisk] }
+    let pipeline = testPipeline([.saveToDisk])
 
     let runner = PipelineRunner(store: store)
-    let first = try await runner.execute(artifact())
-    let second = try await runner.execute(artifact())
-    let third = try await runner.execute(artifact())
+    let first = try await runner.execute(pipeline, on: artifact())
+    let second = try await runner.execute(pipeline, on: artifact())
+    let third = try await runner.execute(pipeline, on: artifact())
 
     #expect(first.savedURL?.lastPathComponent == "shot_TestApp.png")
     #expect(second.savedURL?.lastPathComponent == "shot_TestApp_2.png")
@@ -96,13 +114,13 @@ func formatOverrideReplacesLiteralTemplateExtension() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.actions = [.saveToDisk]
         $0.filenames.template = "shot.png"
         $0.capture.format = .jpeg
     }
 
+    let pipeline = testPipeline([.saveToDisk])
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact())
+    let outcome = try await runner.execute(pipeline, on: artifact())
     #expect(outcome.savedURL?.lastPathComponent == "shot.jpg")
 }
 
@@ -112,12 +130,12 @@ func templateSubfoldersAreCreated() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.actions = [.saveToDisk]
         $0.filenames.template = "%app/%window_shot"
     }
 
+    let pipeline = testPipeline([.saveToDisk])
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact())
+    let outcome = try await runner.execute(pipeline, on: artifact())
     let saved = try #require(outcome.savedURL)
     #expect(saved.lastPathComponent == "Test_Window_shot.png")
     #expect(saved.deletingLastPathComponent().lastPathComponent == "TestApp")
@@ -130,11 +148,11 @@ func templateSubfoldersAreCreated() async throws {
 func copyImagePutsBitmapOnPasteboard() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.actions = [.copyImage] }
+    let pipeline = testPipeline([.copyImage])
 
     NSPasteboard.general.clearContents()
     let runner = PipelineRunner(store: store)
-    _ = try await runner.execute(artifact())
+    _ = try await runner.execute(pipeline, on: artifact())
     #expect(NSPasteboard.general.canReadObject(forClasses: [NSImage.self]))
 }
 
@@ -143,11 +161,11 @@ func copyImagePutsBitmapOnPasteboard() async throws {
 func copyURLWithoutUploadHalts() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.actions = [.copyURL] }
+    let pipeline = testPipeline([.copyURL])
 
     let runner = PipelineRunner(store: store)
     await #expect(throws: PipelineError.self) {
-        _ = try await runner.execute(artifact())
+        _ = try await runner.execute(pipeline, on: artifact())
     }
 }
 
@@ -159,15 +177,13 @@ func shellReceivesPathAsArgAndEnv() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     let marker = dir.appendingPathComponent("marker.txt").path
-    store.update {
-        $0.pipeline.actions = [
-            .saveToDisk,
-            .runShell(command: "test -f \"$1\" && test \"$1\" = \"$MACSHOT_PATH\" && echo \"$1\" > \(marker)")
-        ]
-    }
+    let pipeline = testPipeline([
+        .saveToDisk,
+        .runShell(command: "test -f \"$1\" && test \"$1\" = \"$MACSHOT_PATH\" && echo \"$1\" > \(marker)")
+    ])
 
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact())
+    let outcome = try await runner.execute(pipeline, on: artifact())
 
     let written = try String(contentsOfFile: marker, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -180,12 +196,10 @@ func shellWithoutPriorSaveGetsTempFile() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     let marker = dir.appendingPathComponent("marker.txt").path
-    store.update {
-        $0.pipeline.actions = [.runShell(command: "echo \"$MACSHOT_PATH\" > \(marker)")]
-    }
+    let pipeline = testPipeline([.runShell(command: "echo \"$MACSHOT_PATH\" > \(marker)")])
 
     let runner = PipelineRunner(store: store)
-    let outcome = try await runner.execute(artifact())
+    let outcome = try await runner.execute(pipeline, on: artifact())
 
     #expect(outcome.savedURL == nil)
     let tempPath = try String(contentsOfFile: marker, encoding: .utf8)
@@ -199,16 +213,14 @@ func shellWithoutPriorSaveGetsTempFile() async throws {
 func failingShellHaltsPipeline() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update {
-        $0.pipeline.actions = [
-            .runShell(command: "exit 3"),
-            .saveToDisk
-        ]
-    }
+    let pipeline = testPipeline([
+        .runShell(command: "exit 3"),
+        .saveToDisk
+    ])
 
     let runner = PipelineRunner(store: store)
     await #expect(throws: PipelineError.self) {
-        _ = try await runner.execute(artifact())
+        _ = try await runner.execute(pipeline, on: artifact())
     }
     // The halted pipeline must not have reached saveToDisk.
     let saves = try? FileManager.default.contentsOfDirectory(
@@ -224,11 +236,11 @@ func failingShellHaltsPipeline() async {
 func uploadToUnknownDestinationHalts() async {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
-    store.update { $0.pipeline.actions = [.upload(destination: "nope")] }
+    let pipeline = testPipeline([.upload(destination: "nope")])
 
     let runner = PipelineRunner(store: store)
     await #expect(throws: PipelineError.self) {
-        _ = try await runner.execute(artifact())
+        _ = try await runner.execute(pipeline, on: artifact())
     }
 }
 
@@ -240,14 +252,14 @@ func counterAdvancesPerSave() async throws {
     let (store, dir) = makeStore()
     defer { try? FileManager.default.removeItem(at: dir) }
     store.update {
-        $0.pipeline.actions = [.saveToDisk]
         $0.filenames.template = "c%counter"
         $0.filenames.counterPadding = 3
     }
 
+    let pipeline = testPipeline([.saveToDisk])
     let runner = PipelineRunner(store: store)
-    let first = try await runner.execute(artifact())
-    let second = try await runner.execute(artifact())
+    let first = try await runner.execute(pipeline, on: artifact())
+    let second = try await runner.execute(pipeline, on: artifact())
     #expect(first.savedURL?.lastPathComponent == "c001.png")
     #expect(second.savedURL?.lastPathComponent == "c002.png")
 }

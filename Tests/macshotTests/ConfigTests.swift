@@ -6,7 +6,8 @@ import Testing
 func emptyJSONDecodesToDefaults() throws {
     let config = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
     #expect(config == AppConfig())
-    #expect(config.pipeline.actions == [.copyImage, .saveToDisk])
+    #expect(config.pipelines.map(\.name) == ["Default"])
+    #expect(config.pipelines.map(\.actions) == [[.copyImage, .saveToDisk]])
     #expect(config.capture.saveDirectory == "~/Pictures/macshot")
     #expect(config.filenames.template == "Screenshot_%y-%mo-%d_%h-%mi-%s.png")
 }
@@ -18,7 +19,7 @@ func configRoundTripsThroughJSON() throws {
     config.capture.format = .jpeg
     config.capture.quality = 75
     config.filenames.template = "%app/%y%mo%d_%counter"
-    config.pipeline.actions = [
+    config.pipelines[0].actions = [
         .openInEditor,
         .copyImage,
         .saveToDisk,
@@ -28,6 +29,10 @@ func configRoundTripsThroughJSON() throws {
         .openInApp(bundleID: "com.apple.Preview"),
         .extractText
     ]
+    var clipboardOnly = Pipeline()
+    clipboardOnly.name = "Clipboard only"
+    clipboardOnly.actions = [.copyImage]
+    config.pipelines.append(clipboardOnly)
     var destination = Destination()
     destination.name = "my-r2"
     destination.kind = .s3
@@ -54,7 +59,7 @@ func malformedFieldsFallBackToDefaults() throws {
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
     #expect(config.capture.format == .png)
     #expect(config.capture.quality == 100) // out-of-range clamps
-    #expect(config.pipeline.actions == [.copyImage])
+    #expect(config.pipelines.map(\.actions) == [[.copyImage]])
     #expect(config.recents.isEmpty)
 }
 
@@ -73,7 +78,48 @@ func aConfigWithPerModeOverridesLoadsWithTheOnePipelineInEffect() throws {
     }
     """
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-    #expect(config.pipeline.actions == [.copyImage])
+    #expect(config.pipelines.map(\.actions) == [[.copyImage]])
+}
+
+@Test
+func aV110ConfigLoadsItsPipelineAsDefault() throws {
+    // v1.0.0–v1.1.0 stored the one pipeline under `pipeline.global`.
+    let json = """
+    {
+      "pipeline": {
+        "global": [ { "type": "saveToDisk" }, { "type": "upload", "destination": "r2" } ]
+      }
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+    #expect(config.pipelines.count == 1)
+    #expect(config.pipelines[0].name == "Default")
+    #expect(config.pipelines[0].actions == [.saveToDisk, .upload(destination: "r2")])
+}
+
+@Test
+func namedPipelinesWinOverTheLegacyKey() throws {
+    let json = """
+    {
+      "pipeline": { "global": [ { "type": "extractText" } ] },
+      "pipelines": [
+        { "id": "6F1D0C52-3E3A-4B1E-9F45-2B0D7C1E8A11", "name": "Copy",
+          "actions": [ { "type": "copyImage" } ] }
+      ]
+    }
+    """
+    let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+    #expect(config.pipelines.map(\.name) == ["Copy"])
+    #expect(config.pipelines[0].id.uuidString == "6F1D0C52-3E3A-4B1E-9F45-2B0D7C1E8A11")
+}
+
+@Test
+func anEmptyPipelineListFallsBackToDefault() throws {
+    // There is always at least one pipeline to run.
+    let config = try JSONDecoder().decode(
+        AppConfig.self, from: Data(#"{ "pipelines": [] }"#.utf8)
+    )
+    #expect(config.pipelines == AppConfig().pipelines)
 }
 
 @MainActor

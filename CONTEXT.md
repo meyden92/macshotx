@@ -94,7 +94,7 @@ The non-image UI the capture overlay floats above the frozen screenshot — tool
 _Avoid_: HUD, panel, controls
 
 **Pipeline**:
-The ordered list of actions executed after a capture is taken. One pipeline is configured in Settings and runs after every capture.
+A named, ordered list of actions executed after a capture is taken. Several can exist; each is defined once in Settings → Pipelines and referenced by its id, so one pipeline can serve many capture hotkeys. There is always at least one, and a fresh install has "Default" (copy image, save to disk). Until capture hotkeys choose one, every capture runs the first.
 _Avoid_: Workflow, action chain
 
 **Pipeline action**:

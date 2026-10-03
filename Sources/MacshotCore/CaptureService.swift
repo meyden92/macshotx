@@ -34,10 +34,10 @@ enum CaptureService {
             playFeedback()
             // Watermarked here, once: every pipeline action — and a second pass
             // through the editor — then works on the same finished image.
-            await PipelineRunner().run(CaptureArtifact(
-                image: Watermark.applied(
-                    to: commit.image, ConfigStore.shared.config.capture.watermark
-                ),
+            // Runs the first pipeline until capture hotkeys pick one (#71).
+            let config = ConfigStore.shared.config
+            await PipelineRunner().run(config.pipelines[0], on: CaptureArtifact(
+                image: Watermark.applied(to: commit.image, config.capture.watermark),
                 appName: commit.appName,
                 windowTitle: commit.windowTitle
             ))

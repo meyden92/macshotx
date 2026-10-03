@@ -32,8 +32,8 @@ struct SettingsView: View {
                 .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
             FilenamesSettingsTab()
                 .tabItem { Label("Filenames", systemImage: "textformat.abc") }
-            PipelineSettingsTab()
-                .tabItem { Label("Pipeline", systemImage: "arrow.right.square") }
+            PipelinesSettingsTab()
+                .tabItem { Label("Pipelines", systemImage: "arrow.right.square") }
             DestinationsSettingsTab()
                 .tabItem { Label("Destinations", systemImage: "icloud.and.arrow.up") }
             AdvancedSettingsTab()
@@ -371,26 +371,101 @@ struct FilenamesSettingsTab: View {
     }
 }
 
-// MARK: - Pipeline
+// MARK: - Pipelines
 
-struct PipelineSettingsTab: View {
+/// Named pipelines on the left, the selected one's name and actions on the
+/// right — the same shape as the Destinations tab. The last pipeline cannot be
+/// removed: there is always one to run.
+struct PipelinesSettingsTab: View {
     @ObservedObject private var store = ConfigStore.shared
+    @State private var selectedID: UUID?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Pipeline") {
-                    PipelineActionsEditor(actions: store.binding(\.pipeline.actions))
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                List(selection: $selectedID) {
+                    ForEach(store.config.pipelines) { pipeline in
+                        VStack(alignment: .leading) {
+                            Text(pipeline.name.isEmpty ? "(unnamed)" : pipeline.name)
+                            Text(pipeline.actions.count == 1
+                                ? "1 action" : "\(pipeline.actions.count) actions")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .tag(pipeline.id)
+                    }
                 }
-                Text(
-                    "Actions run top to bottom after every capture. If one fails, the "
-                    + "pipeline stops and shows a notification with a Retry option."
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .frame(width: 200)
+                Divider()
+                if let index = selectedIndex {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            TextField("Name", text: store.binding(\.pipelines[index].name))
+                            GroupBox("Actions") {
+                                PipelineActionsEditor(
+                                    actions: store.binding(\.pipelines[index].actions)
+                                )
+                            }
+                            Text(
+                                "Actions run top to bottom. Captures run the first pipeline "
+                                + "in the list. If an action fails, the pipeline stops and "
+                                + "shows a notification with a Retry option."
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(20)
+                    }
+                } else {
+                    VStack {
+                        Text("Select or add a pipeline")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-            .padding(20)
+            Divider()
+            HStack {
+                Button("Add") { add() }
+                Button("Duplicate") { duplicateSelected() }
+                    .disabled(selectedIndex == nil)
+                Button("Remove") { removeSelected() }
+                    .disabled(selectedIndex == nil || store.config.pipelines.count <= 1)
+                Spacer()
+            }
+            .padding(10)
         }
+        .frame(height: 460)
+        .onAppear {
+            if selectedIndex == nil { selectedID = store.config.pipelines.first?.id }
+        }
+    }
+
+    private var selectedIndex: Int? {
+        guard let selectedID else { return nil }
+        return store.config.pipelines.firstIndex { $0.id == selectedID }
+    }
+
+    private func add() {
+        var pipeline = Pipeline()
+        pipeline.name = "New pipeline"
+        store.update { $0.pipelines.append(pipeline) }
+        selectedID = pipeline.id
+    }
+
+    private func duplicateSelected() {
+        guard let index = selectedIndex else { return }
+        var copy = store.config.pipelines[index]
+        copy.id = UUID()
+        copy.name += " copy"
+        store.update { $0.pipelines.insert(copy, at: index + 1) }
+        selectedID = copy.id
+    }
+
+    private func removeSelected() {
+        guard let index = selectedIndex, store.config.pipelines.count > 1 else { return }
+        store.update { $0.pipelines.remove(at: index) }
+        selectedID = store.config.pipelines[min(index, store.config.pipelines.count - 1)].id
     }
 }
 
@@ -824,7 +899,7 @@ struct AdvancedSettingsTab: View {
             let alert = NSAlert()
             alert.messageText = "Replace current configuration?"
             var info = "Destinations: \(bundle.config.destinations.count) · "
-                + "Pipeline actions: \(bundle.config.pipeline.actions.count)"
+                + "Pipelines: \(bundle.config.pipelines.count)"
             let commands = ConfigPorter.shellCommands(in: bundle.config)
             if !commands.isEmpty {
                 info += "\n\n⚠️ This config runs shell commands:\n"
