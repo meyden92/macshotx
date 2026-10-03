@@ -2,11 +2,9 @@
 
 > **Superseded in part by ADR 0018 (2026-10-03).** The provenance half is reversed: a Selection seeded by window snap carries its window until the rectangle is edited, and the Resolution box shows it while it holds — so it is no longer the invisible provenance rejected below. The window companion image and `%app`/`%window` naming the captured window come back with it. Dragged and fullscreen-seeded Selections still carry nothing.
 
-> **Superseded in part by ADR 0017 (2026-10-03).** Capture modes are back as the starting mode of a capture hotkey: Area, Window or Fullscreen. The pipeline now follows the hotkey, not the mode. The provenance half of this record still stands until #64.
+> **Superseded in part by ADR 0015 and ADR 0017 (2026-10-03).** "One pipeline runs after every capture" no longer holds: pipelines are named, several can exist, and each capture hotkey references the one it runs. The "no capture modes" half stands — capture hotkeys carry no mode, and every capture chooses what to capture inside the overlay.
 
-> **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing, so provenance does not reopen on that route; #64 brings it back with Window-mode captures instead.
-
-> **Superseded in part by ADR 0015 (2026-10-03).** "One pipeline runs after every capture" no longer holds: pipelines are named and several can exist, each referenced by id. The capture-mode and provenance half of this record is unaffected by that change.
+> **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing; ADR 0018 brings provenance back on that seed.
 
 > **Amended by ADR 0014 (2026-09-02).** One pipeline after every capture still stands, and a dragged Selection is still a plain rectangle with no provenance. What reopened is narrower: a **snap click now captures immediately**, so the window it captured is known at the moment of commit and there is no editable rectangle for provenance to silently fall off — which was the objection below. Provenance is therefore restored for that one route, bringing back the window companion image and honest `%app`/`%window` tokens for snap-click captures. Tracked separately from ADR 0013/0014; it revives a deleted compositor path and is not part of the annotate-first change itself.
 

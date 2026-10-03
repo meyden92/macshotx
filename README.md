@@ -33,11 +33,9 @@ product specification.
   `{response}` response parsing). Secrets live in the macOS Keychain.
 - **Utilities** — on-device OCR (Apple Vision), color picker with magnifier
   loupe (hex/RGB/HSL), standalone magnifier.
-- **Global hotkeys** — as many capture hotkeys as you like, each with a name,
-  a starting mode and its own pipeline, so one shortcut can copy to the
-  clipboard while another saves and uploads. Area opens ready to drag, Window
-  with window snap on, Fullscreen with the display under the cursor already
-  selected; Tab and `F` still switch inside the overlay. Plus one
+- **Global hotkeys** — as many capture hotkeys as you like, each with a name
+  and its own pipeline, so one shortcut can copy to the clipboard while
+  another saves and uploads. Every one opens the same overlay. Plus one
   per utility. All rebindable in Settings → Hotkeys, and every capture hotkey
   is listed in the menu bar (no Accessibility permission needed).
 - **Zero telemetry.** The only network calls are uploads you configure.
@@ -49,12 +47,12 @@ product specification.
 
 | Action | Hotkey |
 |---|---|
-| Capture area (runs "Default") | ⌃⇧4 |
+| Capture (runs "Default") | ⌃⇧4 |
 | Pick color | ⌃⇧C |
 | Magnifier | ⌃⇧M |
 
 Add, rename, reorder or delete capture hotkeys in Settings → Hotkeys. A
-config from v1.1.0 or earlier keeps its capture binding as "Capture area".
+config from v1.1.0 or earlier keeps its capture binding as "Capture".
 
 ## Requirements
 

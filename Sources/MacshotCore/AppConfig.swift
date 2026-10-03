@@ -243,24 +243,9 @@ struct HotkeyBinding: Equatable, Codable, Hashable, Sendable {
     var carbonModifiers: UInt32
 }
 
-/// How the capture overlay starts. Only a starting point: the overlay can
-/// still switch with `Tab` and `F` (ADR 0017).
-enum CaptureMode: String, Codable, CaseIterable, Sendable {
-    case area
-    case window
-    case fullscreen
-
-    var label: String {
-        switch self {
-        case .area: return "Area"
-        case .window: return "Window"
-        case .fullscreen: return "Fullscreen"
-        }
-    }
-}
-
-/// One user-defined way to start a capture: a shortcut, the mode the overlay
-/// starts in, and the pipeline the result runs through (ADR 0017).
+/// One user-defined way to start a capture: a shortcut and the pipeline the
+/// result runs through (ADR 0017). Every entry opens the same overlay; what
+/// to capture is chosen there.
 struct CaptureHotkey: Equatable, Codable, Identifiable, Sendable {
     /// The id of the entry a fresh or migrated config starts with. Fixed so
     /// that decoding the same config twice yields equal values.
@@ -270,31 +255,26 @@ struct CaptureHotkey: Equatable, Codable, Identifiable, Sendable {
     var name = ""
     /// nil: reachable only from the menu bar.
     var binding: HotkeyBinding?
-    var mode = CaptureMode.area
     /// References `Pipeline.id`. May dangle once that pipeline is deleted;
     /// `AppConfig.pipeline(for:)` then falls back to the first pipeline.
     var pipelineID = Pipeline.defaultID
 
     init() {}
 
-    init(id: UUID, name: String, binding: HotkeyBinding?, mode: CaptureMode, pipelineID: UUID) {
+    init(id: UUID, name: String, binding: HotkeyBinding?, pipelineID: UUID) {
         self.id = id
         self.name = name
         self.binding = binding
-        self.mode = mode
         self.pipelineID = pipelineID
     }
 
-    /// "Capture area" in Area mode running "Default": what a fresh config
-    /// starts with, and what a v1.1.0 binding becomes.
-    static func captureArea(binding: HotkeyBinding?) -> CaptureHotkey {
-        CaptureHotkey(
-            id: defaultID, name: "Capture area", binding: binding,
-            mode: .area, pipelineID: Pipeline.defaultID
-        )
+    /// "Capture" running "Default": what a fresh config starts with, and what
+    /// a v1.1.0 binding becomes.
+    static func defaultEntry(binding: HotkeyBinding?) -> CaptureHotkey {
+        CaptureHotkey(id: defaultID, name: "Capture", binding: binding, pipelineID: Pipeline.defaultID)
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, binding, mode, pipelineID }
+    private enum CodingKeys: String, CodingKey { case id, name, binding, pipelineID }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -302,7 +282,6 @@ struct CaptureHotkey: Equatable, Codable, Identifiable, Sendable {
         name = c.decodeOr(.name, "")
         // Absent means unbound: an unbound entry is encoded without the key.
         binding = try? c.decodeIfPresent(HotkeyBinding.self, forKey: .binding)
-        mode = c.decodeOr(.mode, .area)
         pipelineID = c.decodeOr(.pipelineID, Pipeline.defaultID)
     }
 }
@@ -310,7 +289,7 @@ struct CaptureHotkey: Equatable, Codable, Identifiable, Sendable {
 struct HotkeySettings: Equatable, Codable, Sendable {
     // Defaults: ⌃⇧4 mirrors the system's ⌘⇧4; ⌃⇧C / ⌃⇧M for the utilities.
     /// In menu-bar order. May be empty.
-    var captures = [CaptureHotkey.captureArea(binding: Self.defaultCaptureBinding)]
+    var captures = [CaptureHotkey.defaultEntry(binding: Self.defaultCaptureBinding)]
     var colorPicker: HotkeyBinding? = HotkeyBinding(keyCode: 8, carbonModifiers: 0x1200)
     var magnifier: HotkeyBinding? = HotkeyBinding(keyCode: 46, carbonModifiers: 0x1200)
 
@@ -332,7 +311,7 @@ struct HotkeySettings: Equatable, Codable, Sendable {
             self.captures = captures
         } else {
             let legacy = try decoder.container(keyedBy: LegacyKeys.self)
-            captures = [.captureArea(binding: legacy.decodeOr(.capture, Self.defaultCaptureBinding))]
+            captures = [.defaultEntry(binding: legacy.decodeOr(.capture, Self.defaultCaptureBinding))]
         }
         colorPicker = c.decodeOr(.colorPicker, defaults.colorPicker)
         magnifier = c.decodeOr(.magnifier, defaults.magnifier)

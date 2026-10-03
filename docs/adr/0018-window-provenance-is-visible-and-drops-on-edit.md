@@ -33,4 +33,4 @@ ADR 0007's amendment removed the artifact's may-contain-transparency flag togeth
 - `WindowCandidate` carries the app name and title again. Their only consumers are the provenance indicator and the commit's `%app`/`%window`.
 - The companion is captured live after macshot has activated, while the frozen screen was captured before. The window's appearance in the companion (inactive title bar, content that changed since the freeze) can therefore differ from what the frozen screen shows. Only beautify shows it.
 - A `Return` straight after the snap click can wait briefly for the companion capture before the overlay closes.
-- Window mode ([ADR 0017](0017-capture-hotkeys-carry-a-mode-and-a-pipeline.md)) is the usual way in, but provenance belongs to the seed, not the mode. A snap click in any mode gives it, once `Tab` has armed snap.
+- Provenance belongs to the seed: a snap click gives it whenever snap is armed, which it is when every capture starts. After `Tab` disarms it, there is no window to carry.

@@ -6,12 +6,8 @@ annotate, and route screenshots through automated post-capture actions.
 ## Language
 
 **Capture hotkey**:
-A user-defined entry that begins a capture. It has a name, an optional global shortcut, a Capture mode and a reference to the Pipeline it runs. There can be any number of them, including none. Each one appears in the menu bar with its shortcut, and an entry without a shortcut is reachable only there. It always presents the capture overlay. If its Pipeline has been deleted, it runs the first one. The colour picker and magnifier hotkeys are utilities, not capture hotkeys.
-_Avoid_: Capture shortcut, region hotkey, per-mode hotkey
-
-**Capture mode**:
-How a capture hotkey starts the capture overlay. Area opens idle with window snap off, ready to drag a Selection. Window opens idle with window snap armed, so clicking a window seeds the Selection to it. Fullscreen opens with the display under the cursor already selected and the tools up, as if `F` had been pressed. It is only a starting point. Inside the overlay `Tab` and `F` still switch, and `Return` still confirms.
-_Avoid_: Capture type, region/window/fullscreen hotkey
+A user-defined entry that begins a capture. It has a name, an optional global shortcut and a reference to the Pipeline it runs; it carries no capture mode, because what to capture is chosen in the overlay. There can be any number of them, including none. Each one appears in the menu bar with its shortcut, and an entry without a shortcut is reachable only there. It always presents the capture overlay. If its Pipeline has been deleted, it runs the first one. The colour picker and magnifier hotkeys are utilities, not capture hotkeys.
+_Avoid_: Capture shortcut, region hotkey, per-mode hotkey, capture mode
 
 **Capture overlay**:
 The surface presented on every display when a capture begins. Opens idle — the frozen screen and a helper card, no tools — and hosts window snap, the Selection, and the annotation tools, which come up around the Selection once one exists. Confirming the Selection with `Return` is the only thing that captures; there is no separate window-picking UI, and no capture bypasses it.
@@ -22,12 +18,12 @@ The adjustable rectangle inside the capture overlay that will become the capture
 _Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
-Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. The Selection it seeds carries Window provenance. Armed from the start in Window mode, off otherwise, and toggled with `Tab`; respects window z-order.
+Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. The Selection it seeds carries Window provenance. Armed when every capture starts and toggled with `Tab`; respects window z-order.
 _Avoid_: Window detection, window picking, hover-to-pick
 
 **Window provenance**:
 The window a Selection was snapped to — its app, title and frame — carried only while the Selection is still exactly that window. Any change to the rectangle drops it, and so does dismissing it or starting a new Selection; dragged and fullscreen Selections never have it. While it holds, the Resolution box names the window. A capture confirmed with it is filed under that window for `%app` and `%window`, and beautify composes the window's own shadow-free image, so the backdrop shows through its rounded corners. Every other capture is filed under the app that was frontmost when the overlay opened.
-_Avoid_: Window capture, capture source, window mode (that is a Capture mode)
+_Avoid_: Window capture, capture source, window mode
 
 **Boundary snap**:
 Selection edges magnetically snapping to strong color edges in the frozen screen image while drawing, moving, or resizing the selection. Bypassable with a modifier key.

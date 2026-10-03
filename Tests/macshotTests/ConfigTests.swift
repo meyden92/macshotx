@@ -39,8 +39,7 @@ func configRoundTripsThroughJSON() throws {
     destination.s3.bucket = "shots"
     config.destinations = [destination]
     var clipboardHotkey = CaptureHotkey()
-    clipboardHotkey.name = "Window to clipboard"
-    clipboardHotkey.mode = .window
+    clipboardHotkey.name = "Clipboard"
     clipboardHotkey.pipelineID = clipboardOnly.id
     config.hotkeys.captures.append(clipboardHotkey) // unbound
     config.counters = ["/tmp/shots": 12]
@@ -176,19 +175,17 @@ func aV110ConfigLoadsItsCaptureHotkeyAsCaptureArea() throws {
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
     #expect(config.hotkeys.captures.count == 1)
     let entry = try #require(config.hotkeys.captures.first)
-    #expect(entry.name == "Capture area")
-    #expect(entry.mode == .area)
+    #expect(entry.name == "Capture")
     #expect(entry.binding == HotkeyBinding(keyCode: 18, carbonModifiers: 256))
     #expect(entry.pipelineID == config.pipelines[0].id)
     #expect(config.pipelines[0].name == "Default")
 }
 
 @Test
-func aFreshConfigHasOneCaptureAreaEntryOnControlShift4() throws {
+func aFreshConfigHasOneCaptureEntryOnControlShift4() throws {
     let entry = try #require(AppConfig().hotkeys.captures.first)
     #expect(AppConfig().hotkeys.captures.count == 1)
-    #expect(entry.name == "Capture area")
-    #expect(entry.mode == .area)
+    #expect(entry.name == "Capture")
     #expect(entry.binding == HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200))
     #expect(entry.pipelineID == Pipeline.defaultID)
 }

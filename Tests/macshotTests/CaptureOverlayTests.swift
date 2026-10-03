@@ -7,7 +7,7 @@ import Testing
 
 @Test
 func startingSelectionClearsTheOtherDisplaysSelection() {
-    var model = CaptureSessionModel(displayCount: 3, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 3, snapArmed: false)
     #expect(model.startSelection(on: 0) == [])
     #expect(model.selectionOwner == 0)
     #expect(model.startSelection(on: 2) == [0])
@@ -18,7 +18,7 @@ func startingSelectionClearsTheOtherDisplaysSelection() {
 
 @Test
 func clearingSelectionOnlyAffectsTheOwner() {
-    var model = CaptureSessionModel(displayCount: 2, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     _ = model.startSelection(on: 1)
     model.clearSelection(on: 0)
     #expect(model.selectionOwner == 1)
@@ -26,49 +26,22 @@ func clearingSelectionOnlyAffectsTheOwner() {
     #expect(model.selectionOwner == nil)
 }
 
-// MARK: - Session model: starting state per capture mode (ADR 0017)
+// MARK: - Session model: snap toggling
 
 @Test
-func anAreaCaptureStartsIdleWithWindowSnapOff() {
-    let model = CaptureSessionModel(displayCount: 2, mode: .area, displayUnderCursor: 1)
-    #expect(!model.snapArmed)
-    #expect(model.selectionOwner == nil)
-}
-
-@Test
-func aWindowCaptureStartsIdleWithWindowSnapArmed() {
-    let model = CaptureSessionModel(displayCount: 2, mode: .window, displayUnderCursor: 1)
+func aSessionStartsWithWindowSnapArmed() {
+    // Pointing at a window and clicking it is the quickest way to a Selection,
+    // and it must not need a Tab first (ADR 0016).
+    let model = CaptureSessionModel(displayCount: 2)
     #expect(model.snapArmed)
     #expect(model.selectionOwner == nil)
-}
-
-@Test
-func aFullscreenCaptureStartsWithTheDisplayUnderTheCursorHoldingTheSelection() {
-    let model = CaptureSessionModel(displayCount: 3, mode: .fullscreen, displayUnderCursor: 2)
-    #expect(model.selectionOwner == 2)
-    // Snap only acts on an idle display; the others start as an Area capture would.
-    #expect(!model.snapArmed)
-}
-
-@Test(arguments: CaptureMode.allCases)
-func tabAndFSwitchInEveryStartingMode(mode: CaptureMode) {
-    // The mode is only where the overlay starts (ADR 0017).
-    var model = CaptureSessionModel(displayCount: 2, mode: mode, displayUnderCursor: 0)
-    let startedArmed = model.snapArmed
-    let changed = model.toggleSnap()
-    #expect(changed)
-    #expect(model.snapArmed == !startedArmed)
-    // `F` on the other display seeds it and takes the Selection over.
-    let cleared = model.startSelection(on: 1)
-    #expect(cleared == (mode == .fullscreen ? [0] : []))
-    #expect(model.selectionOwner == 1)
 }
 
 @Test
 func tabTogglesSnapWhetherOrNotASelectionExists() {
     // Snap only acts on an idle display, and another display can be idle —
     // its helper card offering Tab — while this one holds the Selection.
-    var model = CaptureSessionModel(displayCount: 2, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     var changed = model.toggleSnap()
     #expect(changed)
     #expect(model.snapArmed)
@@ -88,7 +61,7 @@ private let unitRect = CGRect(x: 0, y: 0, width: 10, height: 10)
 
 @Test
 func commitBeforeImageArrivesIsHeldThenPerformed() {
-    var model = CaptureSessionModel(displayCount: 2, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     let rect = CGRect(x: 5, y: 5, width: 50, height: 40)
     #expect(model.requestCommit(on: 1, rect: rect) == .held)
     #expect(model.resolution == .pending)
@@ -103,21 +76,10 @@ func commitBeforeImageArrivesIsHeldThenPerformed() {
 }
 
 @Test
-func aFullscreenSelectionConfirmedBeforeItsImageLandsIsHeldForIt() {
-    // The seed happens as the overlay appears, usually before any pixels.
-    var model = CaptureSessionModel(displayCount: 2, mode: .fullscreen, displayUnderCursor: 1)
-    let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    #expect(model.requestCommit(on: 1, rect: display) == .held)
-    #expect(model.imageArrived(on: 0) == nil)
-    #expect(model.imageArrived(on: 1) == CaptureSessionModel.HeldCommit(display: 1, rect: display))
-    #expect(model.resolution == .committed)
-}
-
-@Test
 func aWindowSnappedSelectionConfirmedBeforeItsImageLandsKeepsItsWindow() {
-    // Window mode: the click can seed before the frozen image is in, and the
+    // A snap click can seed before the frozen image is in, and the
     // held commit must not lose which window the Selection is (#64).
-    var model = CaptureSessionModel(displayCount: 1, mode: .window, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 1)
     let window = WindowCandidate(
         id: 7, frame: CGRect(x: 40, y: 30, width: 600, height: 400),
         bundleIdentifier: "com.apple.dt.Xcode", applicationName: "Xcode", title: "Main.swift",
@@ -130,7 +92,7 @@ func aWindowSnappedSelectionConfirmedBeforeItsImageLandsKeepsItsWindow() {
 
 @Test
 func commitAfterImageArrivedPerformsImmediately() {
-    var model = CaptureSessionModel(displayCount: 1, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
     _ = model.imageArrived(on: 0)
     #expect(model.requestCommit(on: 0, rect: unitRect) == .perform)
     #expect(model.resolution == .committed)
@@ -138,7 +100,7 @@ func commitAfterImageArrivedPerformsImmediately() {
 
 @Test
 func cancelIsNeverHeld() {
-    var model = CaptureSessionModel(displayCount: 2, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     #expect(model.cancel() == true)
     #expect(model.resolution == .cancelled)
     // No transition escapes a resolved session — a screenshot failure
@@ -151,7 +113,7 @@ func cancelIsNeverHeld() {
 
 @Test
 func cancelWinsOverAHeldCommit() {
-    var model = CaptureSessionModel(displayCount: 1, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
     #expect(model.requestCommit(on: 0, rect: unitRect) == .held)
     let cancelled = model.cancel()
     #expect(cancelled)
@@ -162,7 +124,7 @@ func cancelWinsOverAHeldCommit() {
 
 @Test
 func sessionResolvesExactlyOnce() {
-    var model = CaptureSessionModel(displayCount: 1, mode: .area, displayUnderCursor: 0)
+    var model = CaptureSessionModel(displayCount: 1, snapArmed: false)
     _ = model.imageArrived(on: 0)
     #expect(model.requestCommit(on: 0, rect: unitRect) == .perform)
     #expect(model.requestCommit(on: 0, rect: unitRect) == .ignored)

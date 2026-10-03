@@ -458,31 +458,6 @@ func selectionSurvivesUntilTheImageArrivesAndThenBakes() {
 
 @MainActor
 @Test
-func aFullscreenStartSeededBeforeTheImageLandsHasToolsUpAndConfirmsTheDisplay() {
-    // The session seeds Fullscreen as the overlay appears, before any pixels.
-    let (view, window) = makeOverlayView(image: nil)
-    var requested: NSRect?
-    var activity: [Bool] = []
-    view.onCommitRequested = { requested = $0 }
-    view.onSelectionActivity = { activity.append($0) }
-
-    view.selectWholeDisplay()
-    #expect(!view.isIdle)
-    #expect(activity == [true])
-    #expect(toolbar(of: view)?.isHidden == false, "Tools come up with the Selection")
-    view.keyDown(with: key("f", 3, window))
-    #expect(activeTool(of: view) == .fillRect, "With a Selection up, F is the fill-rect tool")
-
-    view.keyDown(with: key("\r", 36, window))
-    #expect(requested == view.bounds)
-    view.installFrozenImage(makeImage())
-    let baked = requested.flatMap { view.bakedImage(croppingTo: $0) }
-    #expect(baked?.width == 200)
-    #expect(baked?.height == 200)
-}
-
-@MainActor
-@Test
 func annotationsOutsideTheSelectionAreClippedAway() throws {
     let (view, window) = makeOverlayView(image: makeImage())
     drag(from: CGPoint(x: 80, y: 80), to: CGPoint(x: 140, y: 140), view: view, window: window)

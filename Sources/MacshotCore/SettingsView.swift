@@ -159,7 +159,7 @@ struct HotkeysSettingsTab: View {
                 .foregroundStyle(.orange)
             }
             Text(
-                "Each capture hotkey opens the overlay in its mode and runs its pipeline. "
+                "Each capture hotkey opens the capture overlay and runs its pipeline. "
                 + "Click a shortcut, then press the new key combination. Esc cancels."
             )
             .font(.callout)
@@ -176,7 +176,7 @@ struct HotkeysSettingsTab: View {
     }
 }
 
-/// One capture entry: name, shortcut, starting mode and pipeline, plus
+/// One capture entry: name, shortcut and pipeline, plus
 /// reorder and delete. Edits go by id, so a row never writes to a stale index.
 struct CaptureHotkeyRow: View {
     let hotkey: CaptureHotkey
@@ -214,25 +214,15 @@ struct CaptureHotkeyRow: View {
                 }
             }
             .buttonStyle(.borderless)
-            HStack {
-                Picker("Mode", selection: Binding(
-                    get: { hotkey.mode },
-                    set: { mode in edit { $0.mode = mode } }
-                )) {
-                    ForEach(CaptureMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
-                    }
+            Picker("Pipeline", selection: Binding(
+                get: { hotkey.pipelineID },
+                set: { id in edit { $0.pipelineID = id } }
+            )) {
+                ForEach(pipelines) { pipeline in
+                    Text(pipeline.name).tag(pipeline.id)
                 }
-                Picker("Pipeline", selection: Binding(
-                    get: { hotkey.pipelineID },
-                    set: { id in edit { $0.pipelineID = id } }
-                )) {
-                    ForEach(pipelines) { pipeline in
-                        Text(pipeline.name).tag(pipeline.id)
-                    }
-                    if dangling {
-                        Text("— deleted —").tag(hotkey.pipelineID)
-                    }
+                if dangling {
+                    Text("— deleted —").tag(hotkey.pipelineID)
                 }
             }
             if dangling {

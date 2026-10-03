@@ -12,9 +12,8 @@ private func sampleConfig() -> AppConfig {
     share.actions = [.upload(destination: "bucket"), .copyURL]
     config.pipelines.append(share)
     var shareHotkey = CaptureHotkey()
-    shareHotkey.name = "Share window"
+    shareHotkey.name = "Share"
     shareHotkey.binding = HotkeyBinding(keyCode: 19, carbonModifiers: 0x1200)
-    shareHotkey.mode = .window
     shareHotkey.pipelineID = share.id
     config.hotkeys.captures.append(shareHotkey)
     var destination = Destination()
@@ -33,7 +32,7 @@ func plainExportRoundTrips() throws {
     let bundle = try ConfigPorter.import(data, passphrase: nil)
     #expect(bundle.config == config)
     #expect(bundle.config.pipelines.map(\.name) == ["Default", "Share"])
-    #expect(bundle.config.hotkeys.captures.map(\.name) == ["Capture area", "Share window"])
+    #expect(bundle.config.hotkeys.captures.map(\.name) == ["Capture", "Share"])
     #expect(bundle.secrets == nil)
 }
 

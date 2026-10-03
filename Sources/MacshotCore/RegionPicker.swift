@@ -433,8 +433,7 @@ final class RegionPickerView: NSView {
         }
     }
 
-    /// `F` while idle: the whole display becomes the Selection. A Fullscreen
-    /// capture starts the same way, seeded by the session (ADR 0017).
+    /// `F` while idle: the whole display becomes the Selection.
     func selectWholeDisplay() {
         seedSelection(bounds)
     }

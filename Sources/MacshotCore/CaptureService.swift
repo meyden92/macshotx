@@ -22,15 +22,14 @@ enum CaptureError: LocalizedError {
 
 enum CaptureService {
     /// The one way a capture begins: present the capture overlay for a capture
-    /// entry, started in the entry's mode, then run the entry's pipeline on
-    /// what was confirmed (ADR 0017).
+    /// entry, then run the entry's pipeline on what was confirmed (ADR 0017).
     @MainActor
     static func captureOverlay(_ hotkey: CaptureHotkey) async {
         guard screenRecordingAllowed() else {
             await notifyCaptureFailure(CaptureError.screenRecordingDenied)
             return
         }
-        switch await CaptureOverlaySession.run(mode: hotkey.mode) {
+        switch await CaptureOverlaySession.run() {
         case .committed(let commit):
             playFeedback()
             // Watermarked here, once: every pipeline action — and a second pass

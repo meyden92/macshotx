@@ -1,6 +1,6 @@
 # One capture hotkey; what to capture is chosen inside the overlay
 
-> **Superseded by ADR 0017 (2026-10-03).** There is a list of capture hotkeys again. Each entry carries a starting capture mode and a pipeline. The overlay is still the only way to capture, and it can still switch modes.
+> **Superseded by ADR 0017 (2026-10-03).** There is a list of capture hotkeys again. Each entry carries a pipeline and no capture mode. The overlay is still the only way to capture, and what to capture is still chosen inside it.
 
 > **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** `F` seeds the whole display again while the overlay is idle; window snap still starts armed.
 
