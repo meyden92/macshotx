@@ -227,6 +227,7 @@ func fillDefaultsPersistThroughTheStylesCallback() {
         frame: frame, image: nil, scale: 1.0, onStylesChanged: { saved = $0 }
     )
     window.contentView = view
+    view.selectWholeDisplay()
     window.makeFirstResponder(view)
 
     view.keyDown(with: key("r", 15, window))
@@ -240,6 +241,7 @@ func fillDefaultsPersistThroughTheStylesCallback() {
         frame: frame, image: nil, scale: 1.0, styles: saved ?? EditorStyles()
     )
     window.contentView = reloaded
+    reloaded.selectWholeDisplay()
     reloaded.keyDown(with: key("r", 15, window))
     let row = optionsRow(of: reloaded)
     #expect(row?.fillModeControl.selectedIndex

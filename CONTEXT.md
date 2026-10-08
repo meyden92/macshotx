@@ -6,24 +6,24 @@ annotate, and route screenshots through automated post-capture actions.
 ## Language
 
 **Capture hotkey**:
-The single global shortcut that begins a capture. It carries no intent — it always presents the capture overlay, whatever the user means to capture.
-_Avoid_: Capture shortcut, region hotkey, per-mode hotkey
+A user-defined entry that begins a capture. It has a name, an optional global shortcut and a reference to the Pipeline it runs; it carries no capture mode, because what to capture is chosen in the overlay. There can be any number of them, including none. Each one appears in the menu bar with its shortcut, and an entry without a shortcut is reachable only there. It always presents the capture overlay. If its Pipeline has been deleted, it runs the first one. The colour picker and magnifier hotkeys are utilities, not capture hotkeys.
+_Avoid_: Capture shortcut, region hotkey, per-mode hotkey, capture mode
 
 **Capture overlay**:
-The surface presented on every display when a capture begins. Hosts the selection, window snap, and all annotation tools, every one of them live from the first frame; there is no separate window-picking UI, and no capture bypasses it.
+The surface presented on every display when a capture begins. Opens idle — the frozen screen and a helper card, no tools — and hosts window snap, the Selection, and the annotation tools, which come up around the Selection once one exists. Confirming the Selection with `Return` is the only thing that captures; there is no separate window-picking UI, and no capture bypasses it.
 _Avoid_: Region picker, capture window, overlay window
 
-**Annotate-first capture**:
-The one order the capture overlay runs in: annotation tools are live from the first frame over the frozen screen image, and the Selection is made last. It is an order, not a mode — nothing about the annotation model, the compositor or the pipeline differs, and there is no opposite setting to run instead.
-_Avoid_: Fast capture, fast-capture mode, selection-last mode
-
 **Selection**:
-The rectangle that crops the capture down to what is wanted, made last. Confined to a single display. In the capture overlay a drag captures it on release, and a click captures a window or the display outright, so it is only ever live for the length of a drag there; the post-capture editor keeps an adjustable crop Selection that confirming exports. Whatever falls outside it — annotations included — is clipped away.
+The adjustable rectangle inside the capture overlay that will become the captured image, made first. Seeded three ways — dragged freehand, filled to the whole display with `F`, or snapped to a window — after which it is one and the same rectangle however it began: movable, resizable, annotatable, and captured only when confirmed. The one exception: a window-snapped Selection carries Window provenance until the rectangle first changes. Confined to a single display; starting one on another display clears the first. Whatever falls outside it — annotations included — is clipped away. In the post-capture editor it is an optional crop.
 _Avoid_: Region, capture rect, selection rect
 
 **Window snap**:
-Capture-overlay behavior where hovering highlights the window under the cursor and clicking captures it. Armed on every capture and toggleable mid-capture; the highlight draws only while the select tool is active; respects window z-order.
+Capture-overlay behavior where, while no Selection exists, hovering highlights the window under the cursor and clicking makes that window the Selection — it never captures. The Selection it seeds carries Window provenance. Armed when every capture starts and toggled with `Tab`; respects window z-order.
 _Avoid_: Window detection, window picking, hover-to-pick
+
+**Window provenance**:
+The window a Selection was snapped to — its app, title and frame — carried only while the Selection is still exactly that window. Any change to the rectangle drops it, and so does dismissing it or starting a new Selection; dragged and fullscreen Selections never have it. While it holds, the Resolution box names the window. A capture confirmed with it is filed under that window for `%app` and `%window`, and beautify composes the window's own shadow-free image, so the backdrop shows through its rounded corners. Every other capture is filed under the app that was frontmost when the overlay opened.
+_Avoid_: Window capture, capture source, window mode
 
 **Boundary snap**:
 Selection edges magnetically snapping to strong color edges in the frozen screen image while drawing, moving, or resizing the selection. Bypassable with a modifier key.
@@ -62,7 +62,7 @@ The annotations currently selected for group editing (moving, deleting, duplicat
 _Avoid_: Selection (reserved for the capture rectangle), multi-selection
 
 **Marquee**:
-The transient rectangle a select-tool Command-drag sweeps across the canvas, anywhere on it; every annotation it touches joins the selected set. Command is what distinguishes it from a plain drag, which draws the Selection or moves an existing one.
+The transient rectangle a select-tool Command-drag inside the Selection sweeps across the canvas; every annotation it touches joins the selected set. Command is what distinguishes it from a plain drag there, which moves the Selection.
 _Avoid_: Lasso, rubber band (reserved for drawing the Selection), selection box
 
 **Tool-options row**:
@@ -70,7 +70,7 @@ The contextual strip of style controls (color, widths, styles, fonts) reflecting
 _Avoid_: Style strip, options bar
 
 **Beautify**:
-The capture-overlay toggle that wraps the capture's content in a decorative backdrop with padding, rounded corners, a drop shadow and an optional macOS window frame. Previewed live — against the whole display, scaled down, while no Selection exists. Never persisted as a toggle, only as a look.
+The capture-overlay toggle that wraps the Selection's content in a decorative backdrop with padding, rounded corners, a drop shadow and an optional macOS window frame. Previewed live against the Selection, so it is only available once one exists. Never persisted as a toggle, only as a look.
 _Avoid_: Prettify, frame, decorate
 
 **Backdrop**:
@@ -94,7 +94,7 @@ The non-image UI the capture overlay floats above the frozen screenshot — tool
 _Avoid_: HUD, panel, controls
 
 **Pipeline**:
-The ordered list of actions executed after a capture is taken. One pipeline is configured in Settings and runs after every capture.
+A named, ordered list of actions executed after a capture is taken. Several can exist; each is defined once in Settings → Pipelines and referenced by its id, so one pipeline can serve many capture hotkeys. There is always at least one, and a fresh install has "Default" (copy image, save to disk). Each capture hotkey names the pipeline it runs.
 _Avoid_: Workflow, action chain
 
 **Pipeline action**:

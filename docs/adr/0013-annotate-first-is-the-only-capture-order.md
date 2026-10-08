@@ -1,5 +1,7 @@
 # Annotate-first is the only capture order
 
+> **Superseded by ADR 0016 (2026-10-03).** Selection-first is the capture order again: the overlay opens idle, a Selection is made first, the tools come up around it and `Return` confirms. Annotate-first is deleted, not kept as a setting.
+
 The capture overlay used to require a Selection before its tools appeared: seed a Selection, then annotate, then confirm. That order is inverted and the old one is deleted. The annotation tools are live from the first frame over the frozen screen image, the whole display is the canvas, and the Selection is made last — it crops what was already drawn. There is no setting: annotate-first is the only order the overlay runs in.
 
 ## Considered Options

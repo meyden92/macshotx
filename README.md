@@ -9,20 +9,21 @@ product specification.
 
 ## Features
 
-- **One capture overlay, annotate first** — the screen freezes on every
-  display with the annotation tools already live: arrows, shapes, text,
-  callouts, step markers, blur/pixelate/solid redactions and a magic eraser
-  that paints a region out in the colour under the cursor, anywhere on the
-  screen. Then click a window (highlighted as you hover; Tab turns snap off)
-  or empty space, drag a region, or press Return for the whole display — every
-  one of them captures immediately.
-  Whatever falls outside the crop is clipped away. Undo/redo, per-annotation
-  move/resize, per-tool styles that persist across sessions.
+- **One capture overlay, selection first** — the screen freezes on every
+  display. Drag a selection, click a window (highlighted as you hover while
+  window snap is on; Tab toggles it), or press `F` for the whole display. All
+  three land on the same adjustable selection — move it, resize it, nudge it,
+  type an exact size — with the annotation tools around it: arrows, shapes, text, callouts,
+  step markers, blur/pixelate/solid redactions and a magic eraser that paints
+  a region out in the colour under the cursor. Return captures, Esc cancels;
+  nothing else does. Undo/redo, per-annotation move/resize, per-tool styles
+  that persist across sessions.
 - **Post-capture editor** with the same toolset plus rectangular crop.
-- **Pipeline automation** — one ordered action list runs after every capture:
-  open in editor, copy image, save to disk, upload, copy URL, run shell
-  command, open in app, extract text (OCR). Failures halt the pipeline with a
-  Retry notification (bitmap held for 60 s).
+- **Pipeline automation** — named, reusable pipelines, each an ordered action
+  list run after a capture: open in editor, copy image, save to disk, upload,
+  copy URL, run shell command, open in app, extract text (OCR). Each capture
+  hotkey picks the pipeline it runs. Failures halt the pipeline with a Retry
+  notification (bitmap held for 60 s).
 - **Filename templates** — ShareX-style tokens: `%y %mo %d %h %mi %s %ms
   %counter %window %app %host %user %uuid %rand:N`, with live preview
   and per-folder counters.
@@ -32,8 +33,11 @@ product specification.
   `{response}` response parsing). Secrets live in the macOS Keychain.
 - **Utilities** — on-device OCR (Apple Vision), color picker with magnifier
   loupe (hex/RGB/HSL), standalone magnifier.
-- **Global hotkeys** — one for capture, one per utility, rebindable in
-  Settings (no Accessibility permission needed).
+- **Global hotkeys** — as many capture hotkeys as you like, each with a name
+  and its own pipeline, so one shortcut can copy to the clipboard while
+  another saves and uploads. Every one opens the same overlay. Plus one
+  per utility. All rebindable in Settings → Hotkeys, and every capture hotkey
+  is listed in the menu bar (no Accessibility permission needed).
 - **Zero telemetry.** The only network calls are uploads you configure.
 - Config is plain JSON at `~/Library/Application Support/macshot/config.json`;
   export/import as a bundle, optionally with secrets and passphrase encryption.
@@ -43,9 +47,12 @@ product specification.
 
 | Action | Hotkey |
 |---|---|
-| Capture | ⌃⇧4 |
+| Capture (runs "Default") | ⌃⇧4 |
 | Pick color | ⌃⇧C |
 | Magnifier | ⌃⇧M |
+
+Add, rename, reorder or delete capture hotkeys in Settings → Hotkeys. A
+config from v1.1.0 or earlier keeps its capture binding as "Capture".
 
 ## Requirements
 

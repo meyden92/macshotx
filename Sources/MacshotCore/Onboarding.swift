@@ -88,9 +88,12 @@ struct OnboardingView: View {
                     Button("Continue") { go(to: page + 1) }
                         .keyboardShortcut(.defaultAction)
                 } else {
+                    // Starts the first capture entry; with none, just finishes.
                     Button("Try It Now") {
                         finish()
-                        Task { await CaptureService.captureOverlay() }
+                        if let first = store.config.hotkeys.captures.first {
+                            Task { await CaptureService.captureOverlay(first) }
+                        }
                     }
                     .keyboardShortcut(.defaultAction)
                 }
@@ -146,7 +149,7 @@ struct OnboardingView: View {
             }
             Text(
                 "Every capture is copied to the clipboard and saved here by "
-                + "default. Change the pipeline later in Settings → Pipeline."
+                + "default. Change the pipeline later in Settings → Pipelines."
             )
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -157,11 +160,12 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Default hotkeys")
                 .font(.title2.bold())
-            ForEach(HotkeyAction.allCases, id: \.self) { action in
+            let hotkeys = store.config.hotkeys
+            ForEach(hotkeys.actions, id: \.self) { action in
                 HStack {
-                    Text(action.label)
+                    Text(hotkeys.label(for: action))
                     Spacer()
-                    Text(store.config.hotkeys.binding(for: action)?.displayString ?? "None")
+                    Text(hotkeys.binding(for: action)?.displayString ?? "None")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
                 }

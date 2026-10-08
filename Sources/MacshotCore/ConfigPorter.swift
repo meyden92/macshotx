@@ -132,7 +132,7 @@ enum ConfigPorter {
     /// Shell commands an imported config would run — surfaced before
     /// activation (PRD §15: malicious config sharing mitigation).
     static func shellCommands(in config: AppConfig) -> [String] {
-        config.pipeline.actions.compactMap { action in
+        config.pipelines.flatMap(\.actions).compactMap { action in
             if case .runShell(let command) = action { return command }
             return nil
         }

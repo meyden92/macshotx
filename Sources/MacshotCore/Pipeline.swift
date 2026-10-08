@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
 
-/// The canonical artifact a capture produces, fed into the pipeline. Nothing
-/// on it records how the Selection was seeded: there are no capture modes for
-/// it to record (ADR 0012).
+/// The canonical artifact a capture produces, fed into the pipeline.
 struct CaptureArtifact {
     let image: CGImage
-    /// Frontmost app / window title at trigger time, for %app / %window tokens.
+    /// What %app / %window name: the snapped window when the Selection still
+    /// carried window provenance, otherwise the frontmost app when the overlay
+    /// opened (ADR 0018).
     let appName: String?
     let windowTitle: String?
 }
@@ -82,8 +82,8 @@ final class RetryStore {
     }
 }
 
-/// Executes the configured action list, in order, halting on the first
-/// failure (PRD §6.6.3).
+/// Executes a pipeline's action list, in order, halting on the first failure
+/// (PRD §6.6.3). The caller picks which pipeline; the runner never chooses.
 @MainActor
 struct PipelineRunner {
     let store: ConfigStore
@@ -92,10 +92,10 @@ struct PipelineRunner {
         self.store = store
     }
 
-    /// Run the pipeline and surface success/failure notifications.
-    func run(_ artifact: CaptureArtifact) async {
+    /// Run `pipeline` on the artifact and surface success/failure notifications.
+    func run(_ pipeline: Pipeline, on artifact: CaptureArtifact) async {
         await run(
-            actions: store.config.pipeline.actions,
+            actions: pipeline.actions,
             artifact: artifact,
             outcome: PipelineOutcome(image: artifact.image)
         )
@@ -151,10 +151,10 @@ struct PipelineRunner {
     }
 
     /// Core execution, separated from notifications for testability.
-    func execute(_ artifact: CaptureArtifact) async throws -> PipelineOutcome {
+    func execute(_ pipeline: Pipeline, on artifact: CaptureArtifact) async throws -> PipelineOutcome {
         var outcome = PipelineOutcome(image: artifact.image)
 
-        for action in store.config.pipeline.actions {
+        for action in pipeline.actions {
             try await perform(action, artifact: artifact, outcome: &outcome)
         }
         return outcome

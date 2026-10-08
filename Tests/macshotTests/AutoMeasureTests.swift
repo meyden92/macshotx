@@ -202,6 +202,7 @@ private func makeBandedView() -> (RegionPickerView, NSWindow) {
     let view = RegionPickerView(frame: frame, image: ctx.makeImage()!, scale: 1.0)
     window.contentView = view
     window.makeFirstResponder(view)
+    view.selectWholeDisplay()
     return (view, window)
 }
 

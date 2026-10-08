@@ -6,7 +6,16 @@ private func sampleConfig() -> AppConfig {
     var config = AppConfig()
     config.capture.format = .jpeg
     config.filenames.template = "%app/%counter"
-    config.pipeline.actions = [.saveToDisk, .runShell(command: "echo hi")]
+    config.pipelines[0].actions = [.saveToDisk, .runShell(command: "echo hi")]
+    var share = Pipeline()
+    share.name = "Share"
+    share.actions = [.upload(destination: "bucket"), .copyURL]
+    config.pipelines.append(share)
+    var shareHotkey = CaptureHotkey()
+    shareHotkey.name = "Share"
+    shareHotkey.binding = HotkeyBinding(keyCode: 19, carbonModifiers: 0x1200)
+    shareHotkey.pipelineID = share.id
+    config.hotkeys.captures.append(shareHotkey)
     var destination = Destination()
     destination.name = "bucket"
     destination.kind = .s3
@@ -22,6 +31,8 @@ func plainExportRoundTrips() throws {
 
     let bundle = try ConfigPorter.import(data, passphrase: nil)
     #expect(bundle.config == config)
+    #expect(bundle.config.pipelines.map(\.name) == ["Default", "Share"])
+    #expect(bundle.config.hotkeys.captures.map(\.name) == ["Capture", "Share"])
     #expect(bundle.secrets == nil)
 }
 
@@ -81,9 +92,9 @@ func garbageIsRejected() {
 }
 
 @Test
-func shellCommandsAreSurfacedFromThePipeline() {
+func shellCommandsAreSurfacedFromEveryPipeline() {
     var config = sampleConfig()
-    config.pipeline.actions.append(.runShell(command: "open $1"))
+    config.pipelines[1].actions.append(.runShell(command: "open $1"))
     let commands = ConfigPorter.shellCommands(in: config)
     #expect(commands == ["echo hi", "open $1"])
 }

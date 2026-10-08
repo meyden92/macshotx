@@ -68,20 +68,39 @@ extension PipelineAction: Codable {
     }
 }
 
-/// The one pipeline, run after every capture. Nothing distinguishes captures
-/// from one another any more, so there is nothing to override it for
-/// (ADR 0012); the stored key stays `global` so a config written back when
-/// overrides existed keeps its action list.
-struct PipelineSettings: Equatable, Codable, Sendable {
-    var actions: [PipelineAction] = [.copyImage, .saveToDisk]
+/// A named, ordered action list run after a capture. Several can exist; each
+/// is defined once in Settings and referenced by its `id`, so a rename never
+/// breaks a reference (ADR 0015).
+struct Pipeline: Equatable, Codable, Identifiable, Sendable {
+    /// The id of the "Default" pipeline a fresh or migrated config starts
+    /// with. Fixed rather than random so that decoding the same config twice
+    /// yields equal values.
+    static let defaultID = UUID(uuidString: "5C1A3D4E-0B7F-4C2A-9E61-8D3F2A7B0C15")!
+
+    /// What a fresh install runs: copy to the clipboard, then save to disk.
+    static let `default` = Pipeline(
+        id: defaultID, name: "Default", actions: [.copyImage, .saveToDisk]
+    )
+
+    var id = UUID()
+    var name = ""
+    var actions: [PipelineAction] = []
 
     init() {}
 
-    private enum CodingKeys: String, CodingKey { case actions = "global" }
+    init(id: UUID, name: String, actions: [PipelineAction]) {
+        self.id = id
+        self.name = name
+        self.actions = actions
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, actions }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        actions = c.decodeOr(.actions, [.copyImage, .saveToDisk])
+        id = c.decodeOr(.id, UUID())
+        name = c.decodeOr(.name, "")
+        actions = c.decodeOr(.actions, [])
     }
 }
 
@@ -224,24 +243,76 @@ struct HotkeyBinding: Equatable, Codable, Hashable, Sendable {
     var carbonModifiers: UInt32
 }
 
+/// One user-defined way to start a capture: a shortcut and the pipeline the
+/// result runs through (ADR 0017). Every entry opens the same overlay; what
+/// to capture is chosen there.
+struct CaptureHotkey: Equatable, Codable, Identifiable, Sendable {
+    /// The id of the entry a fresh or migrated config starts with. Fixed so
+    /// that decoding the same config twice yields equal values.
+    static let defaultID = UUID(uuidString: "2B7E9C41-6A0D-4F38-B5D2-71C4E8A39F06")!
+
+    var id = UUID()
+    var name = ""
+    /// nil: reachable only from the menu bar.
+    var binding: HotkeyBinding?
+    /// References `Pipeline.id`. May dangle once that pipeline is deleted;
+    /// `AppConfig.pipeline(for:)` then falls back to the first pipeline.
+    var pipelineID = Pipeline.defaultID
+
+    init() {}
+
+    init(id: UUID, name: String, binding: HotkeyBinding?, pipelineID: UUID) {
+        self.id = id
+        self.name = name
+        self.binding = binding
+        self.pipelineID = pipelineID
+    }
+
+    /// "Capture" running "Default": what a fresh config starts with, and what
+    /// a v1.1.0 binding becomes.
+    static func defaultEntry(binding: HotkeyBinding?) -> CaptureHotkey {
+        CaptureHotkey(id: defaultID, name: "Capture", binding: binding, pipelineID: Pipeline.defaultID)
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, binding, pipelineID }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.decodeOr(.id, UUID())
+        name = c.decodeOr(.name, "")
+        // Absent means unbound: an unbound entry is encoded without the key.
+        binding = try? c.decodeIfPresent(HotkeyBinding.self, forKey: .binding)
+        pipelineID = c.decodeOr(.pipelineID, Pipeline.defaultID)
+    }
+}
+
 struct HotkeySettings: Equatable, Codable, Sendable {
     // Defaults: ⌃⇧4 mirrors the system's ⌘⇧4; ⌃⇧C / ⌃⇧M for the utilities.
-    // The key is `capture`, not one of the old per-mode keys: a config written
-    // before the hotkeys collapsed lands on this default (ADR 0010).
-    var capture: HotkeyBinding? = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
+    /// In menu-bar order. May be empty.
+    var captures = [CaptureHotkey.defaultEntry(binding: Self.defaultCaptureBinding)]
     var colorPicker: HotkeyBinding? = HotkeyBinding(keyCode: 8, carbonModifiers: 0x1200)
     var magnifier: HotkeyBinding? = HotkeyBinding(keyCode: 46, carbonModifiers: 0x1200)
+
+    private static let defaultCaptureBinding = HotkeyBinding(keyCode: 21, carbonModifiers: 0x1200)
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case capture, colorPicker, magnifier
+        case captures, colorPicker, magnifier
     }
+
+    /// v1.0.0–v1.1.0 kept the one capture binding at `capture`.
+    private enum LegacyKeys: String, CodingKey { case capture }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = HotkeySettings()
-        capture = c.decodeOr(.capture, defaults.capture)
+        if let captures = try? c.decodeIfPresent([CaptureHotkey].self, forKey: .captures) {
+            self.captures = captures
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            captures = [.defaultEntry(binding: legacy.decodeOr(.capture, Self.defaultCaptureBinding))]
+        }
         colorPicker = c.decodeOr(.colorPicker, defaults.colorPicker)
         magnifier = c.decodeOr(.magnifier, defaults.magnifier)
     }
@@ -355,8 +426,8 @@ struct CaptureSettings: Equatable, Codable, Sendable {
     var format = ImageFormat.png
     /// 1–100, applies to jpeg/heic only.
     var quality = 90
-    /// Training-wheel chrome in the capture overlay: the selecting-state hint
-    /// chip attached to a live Selection.
+    /// Training-wheel chrome in the capture overlay: the idle helper card and
+    /// the selecting-state hint.
     var showOverlayHints = true
     var watermark = WatermarkSettings()
 
@@ -569,7 +640,8 @@ struct AppConfig: Equatable, Codable, Sendable {
     var general = GeneralSettings()
     var capture = CaptureSettings()
     var filenames = FilenameSettings()
-    var pipeline = PipelineSettings()
+    /// Never empty: decoding falls back to `Pipeline.default`.
+    var pipelines = [Pipeline.default]
     var destinations: [Destination] = []
     var hotkeys = HotkeySettings()
     var editorStyles = EditorStyles()
@@ -583,16 +655,20 @@ struct AppConfig: Equatable, Codable, Sendable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case general, capture, filenames, pipeline, destinations
+        case general, capture, filenames, pipelines, destinations
         case hotkeys, editorStyles, beautify, selection, counters, recents
     }
+
+    /// v1.0.0–v1.1.0 kept a single action list at `pipeline.global`.
+    private enum LegacyKeys: String, CodingKey { case pipeline }
+    private struct LegacyPipeline: Decodable { var global: [PipelineAction] }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         general = c.decodeOr(.general, GeneralSettings())
         capture = c.decodeOr(.capture, CaptureSettings())
         filenames = c.decodeOr(.filenames, FilenameSettings())
-        pipeline = c.decodeOr(.pipeline, PipelineSettings())
+        pipelines = Self.decodePipelines(c, try decoder.container(keyedBy: LegacyKeys.self))
         destinations = c.decodeOr(.destinations, [])
         hotkeys = c.decodeOr(.hotkeys, HotkeySettings())
         editorStyles = c.decodeOr(.editorStyles, EditorStyles())
@@ -600,5 +676,30 @@ struct AppConfig: Equatable, Codable, Sendable {
         selection = c.decodeOr(.selection, SelectionPrefs())
         counters = c.decodeOr(.counters, [:])
         recents = c.decodeOr(.recents, [])
+    }
+
+    /// The pipeline a capture entry runs: the one it references, or the first
+    /// one if that was deleted. Settings flags the dangling reference instead
+    /// of rewriting it.
+    func pipeline(for hotkey: CaptureHotkey) -> Pipeline {
+        pipelines.first { $0.id == hotkey.pipelineID } ?? pipelines[0]
+    }
+
+    /// The named list if there is one, else the legacy action list carried
+    /// over as "Default", else the fresh default.
+    private static func decodePipelines(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        _ legacy: KeyedDecodingContainer<LegacyKeys>
+    ) -> [Pipeline] {
+        if let pipelines = try? c.decodeIfPresent([Pipeline].self, forKey: .pipelines),
+           !pipelines.isEmpty {
+            return pipelines
+        }
+        if let old = try? legacy.decodeIfPresent(LegacyPipeline.self, forKey: .pipeline) {
+            var migrated = Pipeline.default
+            migrated.actions = old.global
+            return [migrated]
+        }
+        return [.default]
     }
 }

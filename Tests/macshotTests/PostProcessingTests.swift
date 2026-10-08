@@ -93,7 +93,7 @@ func paddingIsAFractionOfTheLongerSide() {
     #expect(layout.capture.minX == 20, "10% of the 200pt long side")
 }
 
-// MARK: - Preview placement (ADR 0013: a whole-display preview scales to fit)
+// MARK: - Preview placement (a whole-display Selection's preview scales to fit)
 
 @Test
 func aPaddedWholeDisplayPreviewIsShrunkToFitAndCentredKeepingItsProportions() {

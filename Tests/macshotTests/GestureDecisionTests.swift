@@ -1,7 +1,7 @@
 import Testing
 @testable import MacshotCore
 
-// The select tool's click and drag ladders as a truth table (#58, ADR 0014).
+// The select tool's click and drag ladders as a truth table (#58, ADR 0016).
 // Facts in, outcome out; nothing here hosts a window.
 
 private func facts(_ edit: (inout SelectGesture.Facts) -> Void = { _ in }) -> SelectGesture.Facts {
@@ -87,16 +87,14 @@ func theSelectionResizesByItsHandlesAndMovesFromInside() {
 }
 
 @Test
-func commandDragIsTheMarqueeAnywhereOnTheCanvas() {
-    // Inside the Selection it beats moving it...
+func commandDragInsideTheSelectionIsTheMarqueeAndOutsideItDrawsANewSelection() {
+    // The marquee is confined to the Selection: annotation happens inside one.
     let inside = facts { $0.hasSelection = true; $0.insideSelection = true; $0.commandHeld = true }
     #expect(SelectGesture.drag(inside) == .marquee)
-    // ...outside it beats drawing a new one...
     let outside = facts { $0.hasSelection = true; $0.commandHeld = true }
-    #expect(SelectGesture.drag(outside) == .marquee)
-    // ...and with no Selection at all it is how marks made before any
-    // Selection existed get group-selected.
-    #expect(SelectGesture.drag(facts { $0.commandHeld = true }) == .marquee)
+    #expect(SelectGesture.drag(outside) == .drawSelection)
+    #expect(SelectGesture.drag(facts { $0.commandHeld = true }) == .drawSelection,
+            "With no Selection a Command-drag still draws one")
     // A Selection handle is an explicit affordance and keeps its grab.
     let handle = facts { $0.hasSelection = true; $0.selectionHandle = .left; $0.commandHeld = true }
     #expect(SelectGesture.drag(handle) == .resizeSelection(.left))
@@ -109,7 +107,7 @@ func emptyCanvasDrawsANewSelection() {
     #expect(SelectGesture.drag(facts { $0.hasSelection = true }) == .drawSelection)
 }
 
-// MARK: - Click ladder (ADR 0014)
+// MARK: - Click ladder (ADR 0016)
 
 @Test
 func aClickThatHitsAnAnnotationSelectsItBeforeAnythingElse() {
@@ -120,21 +118,14 @@ func aClickThatHitsAnAnnotationSelectsItBeforeAnythingElse() {
 }
 
 @Test
-func aClickOverAWindowWithASelectedSetClearsTheSetAndCapturesNothing() {
-    let f = facts { $0.hasSelectedSet = true; $0.snapArmed = true; $0.windowUnderCursor = true }
-    #expect(SelectGesture.click(f) == .clearSelectedSet)
-    // The following click, from the now-clean canvas, captures the window.
-    #expect(SelectGesture.click(facts { $0.snapArmed = true; $0.windowUnderCursor = true })
-            == .captureWindow)
-}
-
-@Test
-func aClickWhileATextEditIsOpenCommitsTheTextRatherThanCapturing() {
+func aClickWithASelectedSetOrAnOpenTextEditOnlyClearsIt() {
+    let overWindow = facts { $0.hasSelectedSet = true; $0.snapArmed = true; $0.windowUnderCursor = true }
+    #expect(SelectGesture.click(overWindow) == .clearSelectedSet)
     #expect(SelectGesture.click(facts { $0.isEditingText = true }) == .clearSelectedSet)
 }
 
 @Test
-func aClickWithADrawingToolInHandCapturesNothing() {
+func aClickWithADrawingToolInHandDoesNothing() {
     let f = facts { $0.tool = .arrow; $0.snapArmed = true; $0.windowUnderCursor = true }
     #expect(SelectGesture.click(f) == .nothing)
     #expect(SelectGesture.click(facts { $0.tool = .pen }) == .nothing)
@@ -145,18 +136,22 @@ func aClickOutsideTheSelectionDismissesItAndInsideDoesNothing() {
     #expect(SelectGesture.click(facts { $0.hasSelection = true }) == .clearSelection)
     #expect(SelectGesture.click(facts { $0.hasSelection = true; $0.insideSelection = true }) == .nothing)
     #expect(SelectGesture.click(facts { $0.hasSelection = true; $0.selectionHandle = .top }) == .nothing)
-    // Even over a window: dismissing the Selection never captures.
+    // Even over a window: one click, one effect. The next one may seed it.
     let overWindow = facts { $0.hasSelection = true; $0.snapArmed = true; $0.windowUnderCursor = true }
     #expect(SelectGesture.click(overWindow) == .clearSelection)
 }
 
 @Test
-func fromACleanCanvasAClickCapturesTheWindowUnderItOrElseTheDisplay() {
+func withNoSelectionAClickOnAWindowSeedsTheSelectionToItWhileSnapIsArmed() {
     #expect(SelectGesture.click(facts { $0.snapArmed = true; $0.windowUnderCursor = true })
-            == .captureWindow)
-    #expect(SelectGesture.click(facts { $0.snapArmed = true }) == .captureDisplay)
-    // Disarming snap changes what a click captures, not whether it captures.
+            == .seedWindow)
     #expect(SelectGesture.click(facts { $0.snapArmed = false; $0.windowUnderCursor = true })
-            == .captureDisplay)
-    #expect(SelectGesture.click(facts()) == .captureDisplay)
+            == .nothing, "Snap off: a click on a window is a click on empty space")
+}
+
+@Test
+func aBareClickOnEmptySpaceDoesNothing() {
+    // No click captures, and none seeds the whole display: that is `F`.
+    #expect(SelectGesture.click(facts()) == .nothing)
+    #expect(SelectGesture.click(facts { $0.snapArmed = true }) == .nothing)
 }

@@ -1,5 +1,11 @@
 # There are no capture modes; one pipeline runs after every capture
 
+> **Superseded in part by ADR 0018 (2026-10-03).** The provenance half is reversed: a Selection seeded by window snap carries its window until the rectangle is edited, and the Resolution box shows it while it holds — so it is no longer the invisible provenance rejected below. The window companion image and `%app`/`%window` naming the captured window come back with it. Dragged and fullscreen-seeded Selections still carry nothing.
+
+> **Superseded in part by ADR 0015 and ADR 0017 (2026-10-03).** "One pipeline runs after every capture" no longer holds: pipelines are named, several can exist, and each capture hotkey references the one it runs. The "no capture modes" half stands — capture hotkeys carry no mode, and every capture chooses what to capture inside the overlay.
+
+> **The ADR 0014 amendment below lapsed with ADR 0016 (2026-10-03).** A snap click seeds a Selection again rather than capturing; ADR 0018 brings provenance back on that seed.
+
 > **Amended by ADR 0014 (2026-09-02).** One pipeline after every capture still stands, and a dragged Selection is still a plain rectangle with no provenance. What reopened is narrower: a **snap click now captures immediately**, so the window it captured is known at the moment of commit and there is no editable rectangle for provenance to silently fall off — which was the objection below. Provenance is therefore restored for that one route, bringing back the window companion image and honest `%app`/`%window` tokens for snap-click captures. Tracked separately from ADR 0013/0014; it revives a deleted compositor path and is not part of the annotate-first change itself.
 
 Once every route seeds a Selection rather than committing one (ADR 0011), a Selection filled to the display is indistinguishable from a drag that reached the screen edges, and a Selection snapped to a window is indistinguishable from a drag around that window. Rather than carry provenance so the distinction could survive, the distinction is dropped. `CaptureMode` is gone, the per-mode `PipelineOverride` for Region, Window and Fullscreen is gone, and one pipeline runs after every capture.

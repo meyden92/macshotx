@@ -311,22 +311,25 @@ func theFloatingDeleteAffordanceRemovesTheSetAndOnlyExistsForOne() {
 /// just off its top-right corner.
 private let affordanceCenter = CGPoint(x: 108, y: 12)
 
-// MARK: - Marquee with no Selection (#62)
+// MARK: - The marquee is confined to the Selection (ADR 0016)
 
 @MainActor
 @Test
-func aMarqueeSelectsAnnotationsBeforeAnySelectionExists() {
-    let (view, window) = makeHostedView()
-    view.keyDown(with: keyEvent("f", keyCode: 3, window: window))
-    drag(in: view, window: window, from: CGPoint(x: 30, y: 30), to: CGPoint(x: 50, y: 50))
-    drag(in: view, window: window, from: CGPoint(x: 70, y: 70), to: CGPoint(x: 90, y: 90))
-    view.keyDown(with: keyEvent("s", keyCode: 1, window: window))
-    pressEscape(view, window)
-
-    // Command-drag across both with no Selection in existence, then delete.
-    marqueeBothRects(view, window)
+func aCommandDragOutsideTheSelectionDrawsANewSelectionRatherThanAMarquee() {
+    let (view, window) = makeSceneWithTwoRects()
+    // From outside the Selection, clear of its handles, across both rects.
+    drag(
+        in: view, window: window,
+        from: CGPoint(x: 190, y: 190), to: CGPoint(x: 25, y: 25),
+        modifiers: [.command]
+    )
     pressDelete(view, window)
-    #expect(view.annotations.isEmpty, "Both marks joined the set and went together")
+    #expect(view.annotations.count == 2, "Nothing joined the set")
+    guard let baked = bake(view, window) else {
+        Issue.record("No baked image produced")
+        return
+    }
+    #expect(baked.width == 165 && baked.height == 165, "The drag drew the new Selection")
 }
 
 @MainActor

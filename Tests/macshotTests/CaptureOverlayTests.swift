@@ -26,43 +26,21 @@ func clearingSelectionOnlyAffectsTheOwner() {
     #expect(model.selectionOwner == nil)
 }
 
-@Test
-func aCaptureIsRefusedOnADisplayThatDoesNotOwnTheSelection() {
-    // A click capture is a single event and can be a slip; it must not
-    // discard the Selection another display holds with the work drawn on it.
-    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
-    _ = model.imageArrived(on: 0)
-    _ = model.imageArrived(on: 1)
-    _ = model.startSelection(on: 0)
-    #expect(model.requestCommit(on: 1, rect: unitRect) == .ignored)
-    #expect(model.resolution == .pending)
-
-    // Once the owner lets go, any display may capture.
-    model.clearSelection(on: 0)
-    #expect(model.requestCommit(on: 1, rect: unitRect) == .perform)
-}
-
-@Test
-func aClickCaptureOnTheOwningDisplayBeforeItsImageIsHeld() {
-    var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
-    _ = model.startSelection(on: 1)
-    #expect(model.requestCommit(on: 1, rect: unitRect) == .held)
-    #expect(model.imageArrived(on: 1) == CaptureSessionModel.HeldCommit(display: 1, rect: unitRect))
-}
-
 // MARK: - Session model: snap toggling
 
 @Test
 func aSessionStartsWithWindowSnapArmed() {
-    // Pointing at a window and clicking must not need a Tab first (ADR 0014).
+    // Pointing at a window and clicking it is the quickest way to a Selection,
+    // and it must not need a Tab first (ADR 0016).
     let model = CaptureSessionModel(displayCount: 2)
     #expect(model.snapArmed)
+    #expect(model.selectionOwner == nil)
 }
 
 @Test
 func tabTogglesSnapWhetherOrNotASelectionExists() {
-    // "No Selection" is the normal working state now, not a transient one, and
-    // a Selection only hides the highlight; it does not lock the mode.
+    // Snap only acts on an idle display, and another display can be idle —
+    // its helper card offering Tab — while this one holds the Selection.
     var model = CaptureSessionModel(displayCount: 2, snapArmed: false)
     var changed = model.toggleSnap()
     #expect(changed)
@@ -95,6 +73,21 @@ func commitBeforeImageArrivesIsHeldThenPerformed() {
     let held = model.imageArrived(on: 1)
     #expect(held == CaptureSessionModel.HeldCommit(display: 1, rect: rect))
     #expect(model.resolution == .committed)
+}
+
+@Test
+func aWindowSnappedSelectionConfirmedBeforeItsImageLandsKeepsItsWindow() {
+    // A snap click can seed before the frozen image is in, and the
+    // held commit must not lose which window the Selection is (#64).
+    var model = CaptureSessionModel(displayCount: 1)
+    let window = WindowCandidate(
+        id: 7, frame: CGRect(x: 40, y: 30, width: 600, height: 400),
+        bundleIdentifier: "com.apple.dt.Xcode", applicationName: "Xcode", title: "Main.swift",
+        layer: 0, isOnScreen: true
+    )
+    let rect = CGRect(x: 40, y: 30, width: 600, height: 400)
+    #expect(model.requestCommit(on: 0, rect: rect, window: window) == .held)
+    #expect(model.imageArrived(on: 0)?.window == window)
 }
 
 @Test
@@ -143,13 +136,6 @@ func sessionResolvesExactlyOnce() {
 // MARK: - Hotkey actions
 
 @Test
-func thereIsOneCaptureHotkeyAndTwoUtilityHotkeys() {
-    // No entry point can pre-arm snap or pick what gets captured: the only
-    // capture action there is opens the overlay (ADR 0010).
-    #expect(HotkeyAction.allCases == [.capture, .colorPicker, .magnifier])
-}
-
-@Test
 func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() throws {
     let legacy = """
     {
@@ -162,6 +148,33 @@ func aConfigFromBeforeTheHotkeysCollapsedLoadsWithTheDefaultCaptureHotkey() thro
     """
     let config = try JSONDecoder().decode(AppConfig.self, from: Data(legacy.utf8))
     #expect(config.hotkeys == HotkeySettings())
+}
+
+// MARK: - Helper card content
+
+@Test
+func helperCardWordingFollowsTheSnapState() throws {
+    let on = try #require(HelperCard.content(snapArmed: true, suppressed: false))
+    #expect(on.instruction == "Click a window to select it · drag an area · F for fullscreen")
+    #expect(on.status == "Window snap: ON (Tab)")
+    let off = try #require(HelperCard.content(snapArmed: false, suppressed: false))
+    #expect(off.instruction == "Drag an area to select it · F for fullscreen")
+    #expect(off.status == "Window snap: OFF (Tab)")
+}
+
+@Test
+func helperCardDescribesSelectingNeverCapturing() throws {
+    // Nothing on the card takes a screenshot on its own: Return does (ADR 0016).
+    for armed in [true, false] {
+        let card = try #require(HelperCard.content(snapArmed: armed, suppressed: false))
+        #expect(!(card.instruction + card.status).lowercased().contains("captur"))
+    }
+}
+
+@Test
+func suppressedHelperCardProducesNothing() {
+    #expect(HelperCard.content(snapArmed: true, suppressed: true) == nil)
+    #expect(HelperCard.content(snapArmed: false, suppressed: true) == nil)
 }
 
 // MARK: - Settings round-trip for the suppression flag

@@ -1,5 +1,7 @@
 # The commit gesture decides: a click captures, a drag confirms
 
+> **Superseded by ADR 0016 (2026-10-03).** No gesture captures any more: a drag draws a Selection, a snap click seeds one, and `Return` confirming it is the only commit path. Window snap still starts armed.
+
 > **Amended 2026-09-02, after testing #57.** A drag now captures on release too. Having used annotate-first, the reporter found a dragged region that then waits for `Return` to be the wrong feel: the drag *is* the decision. Every capture gesture in the overlay is therefore instant — click a window, click the display, drag a region, or press `Return` for the display — and no adjustable Selection ever exists in the capture overlay. What the option below was kept for survives where it still applies: the aspect lock and an armed size preset still shape the drag itself, and the Resolution box, corner handles, arrow-key nudge and typed sizes live on in the post-capture editor, whose crop Selection is still confirmed. The rest of this record stands as the reasoning at the time.
 
 Once the Selection is made last (ADR 0013), it is made by one of two gestures, and they carry different amounts of precision. A **click** captures immediately — on a window, with window snap armed by default, or on empty space — running the pipeline with no confirmation. A **drag** seeds a live, adjustable Selection that `Enter` commits. `Enter` with no Selection captures the display under the cursor.
