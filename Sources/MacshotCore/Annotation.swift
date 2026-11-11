@@ -815,11 +815,101 @@ enum CalloutGeometry {
         TextLayout.font(for: style)
     }
 
-    /// Bubble rect for a callout: the wrapped text box plus padding. The box is
-    /// what the user sizes; the bubble follows it.
+    static let cornerRadius: CGFloat = 6
+
+    /// Bubble rect for a callout: the text rect plus padding.
     static func bubbleRect(box: CGRect, content: String, style: TextStyle) -> CGRect {
-        TextLayout.fittedBox(box, content: content, style: style)
+        textRect(box: box, content: content, style: style)
             .insetBy(dx: -TextLayout.calloutPadding.width, dy: -TextLayout.calloutPadding.height)
+    }
+
+    /// Where a callout's text is drawn. The box width only decides where the
+    /// text wraps; the rect shrinks to the longest wrapped line, sitting in the
+    /// box per the alignment, so a short note doesn't float in a wide bubble.
+    static func textRect(box: CGRect, content: String, style: TextStyle) -> CGRect {
+        let fitted = TextLayout.fittedBox(box, content: content, style: style)
+        // Measured left-aligned: a centred or right-aligned paragraph reports
+        // its lines offset across the whole box width.
+        var measuring = style
+        measuring.alignment = .left
+        let used = TextLayout.attributed(content.isEmpty ? " " : content, style: measuring)
+            .boundingRect(
+                with: CGSize(width: fitted.width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+        let width = min(fitted.width, max(ceil(used.width), TextLayout.minimumBoxSize.width))
+        let x: CGFloat
+        switch style.alignment {
+        case .left: x = fitted.minX
+        case .center: x = fitted.midX - width / 2
+        case .right: x = fitted.maxX - width
+        }
+        return CGRect(x: x, y: fitted.minY, width: width, height: fitted.height)
+    }
+
+    /// The two points where the tail leaves the bubble, or nil when the anchor
+    /// sits on the bubble and there is nothing to point at. The base sits on
+    /// the edge facing the anchor, slides along it toward the anchor, and stays
+    /// clear of the rounded corners so the tail never sprouts from a curve. It
+    /// widens with the tail's length, so long tails don't turn into needles.
+    static func tailBase(bubble rect: CGRect, anchor: CGPoint, fontSize: CGFloat) -> (CGPoint, CGPoint)? {
+        guard !rect.insetBy(dx: -2, dy: -2).contains(anchor) else { return nil }
+
+        // The edge the centre→anchor ray leaves through faces the anchor.
+        let dx = anchor.x - rect.midX
+        let dy = anchor.y - rect.midY
+        let tx = dx == 0 ? CGFloat.infinity : (rect.width / 2) / abs(dx)
+        let ty = dy == 0 ? CGFloat.infinity : (rect.height / 2) / abs(dy)
+        let horizontalEdge = ty <= tx  // top or bottom
+
+        // Along the chosen edge: its usable straight span, and the anchor's
+        // position projected onto it.
+        let (spanMin, spanMax, along, edge) = horizontalEdge
+            ? (rect.minX, rect.maxX, anchor.x, dy > 0 ? rect.maxY : rect.minY)
+            : (rect.minY, rect.maxY, anchor.y, dx > 0 ? rect.maxX : rect.minX)
+        let straightHalf = max(0, (spanMax - spanMin) / 2 - cornerRadius)
+        let distance = horizontalEdge ? abs(anchor.y - edge) : abs(anchor.x - edge)
+        let preferred = min(max(fontSize * 0.4, distance * 0.2), max(10, fontSize * 0.6))
+        let halfWidth = min(preferred, straightHalf)
+        let mid = (spanMin + spanMax) / 2
+        let reach = straightHalf - halfWidth
+        let center = min(max(along, mid - reach), mid + reach)
+
+        // Tucked a point inside the bubble so the shared fill has no seam.
+        let inset: CGFloat = 1
+        if horizontalEdge {
+            let y = edge + (dy > 0 ? -inset : inset)
+            return (CGPoint(x: center - halfWidth, y: y), CGPoint(x: center + halfWidth, y: y))
+        }
+        let x = edge + (dx > 0 ? -inset : inset)
+        return (CGPoint(x: x, y: center - halfWidth), CGPoint(x: x, y: center + halfWidth))
+    }
+
+    /// Bubble and tail as one outline, so they fill as a single shape — a
+    /// translucent colour doesn't darken where the two overlap. The tail's
+    /// sides bow slightly inward, tapering to the anchor.
+    static func path(bubble rect: CGRect, anchor: CGPoint, fontSize: CGFloat) -> CGPath {
+        let bubble = CGPath(
+            roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil
+        )
+        guard let (a, b) = tailBase(bubble: rect, anchor: anchor, fontSize: fontSize) else {
+            return bubble
+        }
+        let baseMid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        func control(from base: CGPoint) -> CGPoint {
+            // Halfway down the tail, pulled a little toward its axis.
+            let onSide = CGPoint(x: (base.x + anchor.x) / 2, y: (base.y + anchor.y) / 2)
+            let onAxis = CGPoint(x: (baseMid.x + anchor.x) / 2, y: (baseMid.y + anchor.y) / 2)
+            return CGPoint(x: onSide.x + (onAxis.x - onSide.x) * 0.3, y: onSide.y + (onAxis.y - onSide.y) * 0.3)
+        }
+        let tail = CGMutablePath()
+        tail.move(to: a)
+        tail.addQuadCurve(to: anchor, control: control(from: a))
+        tail.addQuadCurve(to: b, control: control(from: b))
+        tail.closeSubpath()
+        // A real union: the two outlines wind in opposite directions, so simply
+        // adding them would leave their overlap unfilled.
+        return bubble.union(tail)
     }
 }
 
@@ -1078,49 +1168,13 @@ final class AnnotationRenderer {
         style: TextStyle,
         in ctx: CGContext
     ) {
-        let rect = CalloutGeometry.bubbleRect(box: box, content: content, style: style)
-
-        // Tail: triangle from the bubble's edge to the anchor, skipped when the
-        // anchor sits inside the bubble.
-        if !rect.insetBy(dx: -2, dy: -2).contains(anchor) {
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let dx = anchor.x - center.x
-            let dy = anchor.y - center.y
-            let length = max(1, hypot(dx, dy))
-            let direction = CGPoint(x: dx / length, y: dy / length)
-            // Ray from center toward the anchor, clipped to the bubble edge.
-            var t = CGFloat.greatestFiniteMagnitude
-            if direction.x != 0 {
-                let edgeX = direction.x > 0 ? rect.maxX : rect.minX
-                t = min(t, (edgeX - center.x) / direction.x)
-            }
-            if direction.y != 0 {
-                let edgeY = direction.y > 0 ? rect.maxY : rect.minY
-                t = min(t, (edgeY - center.y) / direction.y)
-            }
-            let base = CGPoint(x: center.x + direction.x * t, y: center.y + direction.y * t)
-            let halfWidth = min(10, max(6, style.fontSize * 0.35))
-            let perpendicular = CGPoint(x: -direction.y, y: direction.x)
-            ctx.setFillColor(style.color.cgColor)
-            ctx.beginPath()
-            ctx.move(to: anchor)
-            ctx.addLine(to: CGPoint(
-                x: base.x + perpendicular.x * halfWidth,
-                y: base.y + perpendicular.y * halfWidth
-            ))
-            ctx.addLine(to: CGPoint(
-                x: base.x - perpendicular.x * halfWidth,
-                y: base.y - perpendicular.y * halfWidth
-            ))
-            ctx.closePath()
-            ctx.fillPath()
-        }
+        let textRect = CalloutGeometry.textRect(box: box, content: content, style: style)
+        let rect = textRect.insetBy(
+            dx: -TextLayout.calloutPadding.width, dy: -TextLayout.calloutPadding.height
+        )
 
         ctx.setFillColor(style.color.cgColor)
-        let bubblePath = CGPath(
-            roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil
-        )
-        ctx.addPath(bubblePath)
+        ctx.addPath(CalloutGeometry.path(bubble: rect, anchor: anchor, fontSize: style.fontSize))
         ctx.fillPath()
 
         // The bubble is the plate, so a callout's own background would be
@@ -1128,7 +1182,7 @@ final class AnnotationRenderer {
         var bubbleTextStyle = style
         bubbleTextStyle.color = .white
         bubbleTextStyle.backgroundColor = nil
-        drawText(content, in: box, style: bubbleTextStyle, measuredWith: style)
+        drawText(content, in: textRect, style: bubbleTextStyle, measuredWith: style)
     }
 
     /// Background plate, then the glyph outline, then the glyphs. Measuring can

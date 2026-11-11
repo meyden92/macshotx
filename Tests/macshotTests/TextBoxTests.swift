@@ -58,15 +58,33 @@ func aTextBoxIsResizableAndReWrapsAsItIsDragged() {
 }
 
 @Test
-func aCalloutBubbleSizesToItsWrappedTextBox() {
+func aCalloutBubbleShrinksToItsTextButWrapsAtTheBox() {
     let box = CGRect(x: 40, y: 40, width: 120, height: 24)
     let short = CalloutGeometry.bubbleRect(box: box, content: "Hi", style: textStyle)
     let long = CalloutGeometry.bubbleRect(box: box, content: manyWords, style: textStyle)
+    let padding = TextLayout.calloutPadding
 
     #expect(long.height > short.height, "The bubble follows the wrapped text")
-    #expect(short.width == long.width, "and keeps the width the box was given")
-    #expect(short.minX < box.minX && short.minY < box.minY,
-            "The bubble stands off the text box by its padding")
+    #expect(short.width < long.width, "A short note gets a narrower bubble than the box")
+    #expect(long.width <= box.width + 2 * padding.width, "Long text still wraps at the box width")
+    #expect(short.minX == box.minX - padding.width && short.minY == box.minY - padding.height,
+            "Left-aligned, the bubble stands off the box's corner by its padding")
+}
+
+@Test
+func aCalloutTailLeavesTheEdgeFacingTheAnchorClearOfTheCorners() {
+    let bubble = CGRect(x: 100, y: 100, width: 200, height: 40)
+    let radius = CalloutGeometry.cornerRadius
+    // Far below and well past the right end: the base slides right but stops
+    // short of the rounded corner.
+    let base = CalloutGeometry.tailBase(bubble: bubble, anchor: CGPoint(x: 600, y: 400), fontSize: 22)
+    let (a, b) = try! #require(base)
+
+    #expect(a.y == b.y && abs(a.y - bubble.maxY) <= 1, "The base sits on the bottom edge")
+    #expect(min(a.x, b.x) >= bubble.minX + radius && max(a.x, b.x) <= bubble.maxX - radius,
+            "and stays on its straight span")
+    #expect(CalloutGeometry.tailBase(bubble: bubble, anchor: CGPoint(x: 150, y: 120), fontSize: 22) == nil,
+            "An anchor on the bubble gets no tail")
 }
 
 @Test
