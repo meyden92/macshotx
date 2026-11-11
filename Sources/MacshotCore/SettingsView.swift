@@ -153,13 +153,35 @@ struct HotkeysSettingsPane: View {
     var body: some View {
         let hotkeys = store.config.hotkeys
         Form {
-            Section("Capture") {
+            Section {
                 ForEach(hotkeys.captures) { hotkey in
                     CaptureHotkeyRow(hotkey: hotkey, store: store)
                 }
-                Button("Add Capture Hotkey") { add() }
+                // The menu bar lists captures in this order, and re-registering
+                // through updateHotkeys keeps it in step without a restart.
+                .onMove { source, destination in
+                    store.updateHotkeys {
+                        $0.captures.move(fromOffsets: source, toOffset: destination)
+                    }
+                }
+            } header: {
+                Text("Capture")
+            } footer: {
+                HStack(alignment: .top) {
+                    Text(
+                        "Each capture hotkey opens the capture overlay and runs its pipeline. "
+                        + "Click a shortcut, then press the new key combination. Esc cancels. "
+                        + "Drag a row to reorder."
+                    )
+                    Spacer()
+                    Button { add() } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add capture hotkey")
+                }
             }
-            Section("Utilities") {
+            Section {
                 ForEach([HotkeyAction.colorPicker, .magnifier], id: \.self) { action in
                     HStack {
                         Text(hotkeys.label(for: action))
@@ -167,28 +189,25 @@ struct HotkeysSettingsPane: View {
                         HotkeyRecorder(action: action, store: store)
                     }
                 }
+            } header: {
+                Text("Utilities")
+            } footer: {
+                let conflicts = hotkeys.conflicts()
+                if !conflicts.isEmpty {
+                    Label(
+                        conflicts
+                            .map {
+                                "\(hotkeys.label(for: $0.0)) and \(hotkeys.label(for: $0.1)) "
+                                    + "share the same shortcut"
+                            }
+                            .joined(separator: "\n"),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
             }
-            let conflicts = hotkeys.conflicts()
-            if !conflicts.isEmpty {
-                Label(
-                    conflicts
-                        .map {
-                            "\(hotkeys.label(for: $0.0)) and \(hotkeys.label(for: $0.1)) "
-                                + "share the same shortcut"
-                        }
-                        .joined(separator: "\n"),
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(.orange)
-            }
-            Text(
-                "Each capture hotkey opens the capture overlay and runs its pipeline. "
-                + "Click a shortcut, then press the new key combination. Esc cancels."
-            )
-            .font(.callout)
-            .foregroundStyle(.secondary)
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func add() {
@@ -199,15 +218,13 @@ struct HotkeysSettingsPane: View {
     }
 }
 
-/// One capture entry: name, shortcut and pipeline, plus
-/// reorder and delete. Edits go by id, so a row never writes to a stale index.
+/// One capture entry on a single row: name, shortcut, pipeline and delete.
+/// Edits go by id, so a row never writes to a stale index.
 struct CaptureHotkeyRow: View {
     let hotkey: CaptureHotkey
     @ObservedObject var store: ConfigStore
 
     var body: some View {
-        let captures = store.config.hotkeys.captures
-        let index = captures.firstIndex { $0.id == hotkey.id } ?? 0
         let pipelines = store.config.pipelines
         let dangling = !pipelines.contains { $0.id == hotkey.pipelineID }
         VStack(alignment: .leading, spacing: 6) {
@@ -218,35 +235,26 @@ struct CaptureHotkeyRow: View {
                 ))
                 .labelsHidden()
                 HotkeyRecorder(action: .capture(hotkey.id), store: store)
-                Button {
-                    store.updateHotkeys { $0.captures.swapAt(index, index - 1) }
-                } label: {
-                    Image(systemName: "chevron.up")
+                Picker("Pipeline", selection: Binding(
+                    get: { hotkey.pipelineID },
+                    set: { id in edit { $0.pipelineID = id } }
+                )) {
+                    ForEach(pipelines) { pipeline in
+                        Text(pipeline.name).tag(pipeline.id)
+                    }
+                    if dangling {
+                        Text("— deleted —").tag(hotkey.pipelineID)
+                    }
                 }
-                .disabled(index == 0)
-                Button {
-                    store.updateHotkeys { $0.captures.swapAt(index, index + 1) }
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .disabled(index == captures.count - 1)
+                .labelsHidden()
+                .frame(maxWidth: 160)
                 Button {
                     store.updateHotkeys { $0.captures.removeAll { $0.id == hotkey.id } }
                 } label: {
                     Image(systemName: "trash")
                 }
-            }
-            .buttonStyle(.borderless)
-            Picker("Pipeline", selection: Binding(
-                get: { hotkey.pipelineID },
-                set: { id in edit { $0.pipelineID = id } }
-            )) {
-                ForEach(pipelines) { pipeline in
-                    Text(pipeline.name).tag(pipeline.id)
-                }
-                if dangling {
-                    Text("— deleted —").tag(hotkey.pipelineID)
-                }
+                .buttonStyle(.borderless)
+                .help("Delete capture hotkey")
             }
             if dangling {
                 Label(
@@ -256,7 +264,6 @@ struct CaptureHotkeyRow: View {
                 .foregroundStyle(.orange)
             }
         }
-        .padding(.vertical, 4)
     }
 
     private func edit(_ mutate: (inout CaptureHotkey) -> Void) {
