@@ -14,6 +14,11 @@ public struct MacshotApp: App {
 
         Settings {
             SettingsView()
+                // Dock tile and Cmd-Tab entry only while Settings is open, so the
+                // window can be found again once another app covers it. Back to
+                // tray-only when it closes (see AppDelegate).
+                .onAppear { NSApp.setActivationPolicy(.regular) }
+                .onDisappear { NSApp.setActivationPolicy(.accessory) }
         }
         // The content fixes the width and sets a minimum height, so only the
         // height can be dragged.
