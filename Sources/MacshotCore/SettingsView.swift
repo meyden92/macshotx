@@ -19,70 +19,93 @@ extension ConfigStore {
 
 // MARK: - Root
 
+/// System Settings–style window: the sidebar lists `SettingsPane`s under their
+/// groups, the selected pane fills the detail column. Fixed width, resizable
+/// height, and it reopens on the pane that was shown last.
 struct SettingsView: View {
+    /// Raw value of the last-shown pane. UI state, not configuration, so it is
+    /// deliberately kept out of `AppConfig` and config exports.
+    @AppStorage("settings.lastPane") private var lastPane = SettingsPane.general.rawValue
+
     var body: some View {
-        TabView {
-            GeneralSettingsTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            PermissionsSettingsTab()
-                .tabItem { Label("Permissions", systemImage: "hand.raised") }
-            HotkeysSettingsTab()
-                .tabItem { Label("Hotkeys", systemImage: "keyboard") }
-            CaptureSettingsTab()
-                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
-            FilenamesSettingsTab()
-                .tabItem { Label("Filenames", systemImage: "textformat.abc") }
-            PipelinesSettingsTab()
-                .tabItem { Label("Pipelines", systemImage: "arrow.right.square") }
-            DestinationsSettingsTab()
-                .tabItem { Label("Destinations", systemImage: "icloud.and.arrow.up") }
-            AdvancedSettingsTab()
-                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+        let pane = SettingsPane(storedValue: lastPane)
+        NavigationSplitView {
+            List(selection: Binding(
+                get: { pane },
+                set: { selected in if let selected { lastPane = selected.rawValue } }
+            )) {
+                ForEach(SettingsPane.sidebar, id: \.group) { section in
+                    Section(section.group.title) {
+                        ForEach(section.panes) { pane in
+                            Label(pane.title, systemImage: pane.systemImage)
+                                .tag(pane)
+                        }
+                    }
+                }
+            }
+            .navigationSplitViewColumnWidth(190)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            detail(for: pane)
+                .navigationTitle(pane.title)
         }
-        .frame(width: 640)
+        .frame(width: 750)
+        .frame(minHeight: 500, idealHeight: 600)
+    }
+
+    @ViewBuilder
+    private func detail(for pane: SettingsPane) -> some View {
+        switch pane {
+        case .general: GeneralSettingsPane()
+        case .permissions: PermissionsSettingsPane()
+        case .hotkeys: HotkeysSettingsPane()
+        case .pipelines: PipelinesSettingsPane()
+        case .destinations: DestinationsSettingsPane()
+        case .saving: SavingSettingsPane()
+        case .watermark: WatermarkSettingsPane()
+        case .advanced: AdvancedSettingsPane()
+        }
     }
 }
 
 // MARK: - General
 
-struct GeneralSettingsTab: View {
+struct GeneralSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
         Form {
-            Toggle("Show notifications", isOn: store.binding(\.general.notificationsEnabled))
-            Toggle(
-                "Capture feedback (sound and flash)",
-                isOn: store.binding(\.general.captureFeedbackEnabled)
-            )
-            Toggle(
-                "Show capture overlay hints",
-                isOn: store.binding(\.capture.showOverlayHints)
-            )
-            Toggle("Launch at login", isOn: Binding(
-                get: { store.config.general.launchAtLogin },
-                set: { enabled in
-                    store.update { $0.general.launchAtLogin = enabled }
-                    applyLaunchAtLogin(enabled)
-                }
-            ))
-            Picker("Color picker copies", selection: store.binding(\.general.colorFormat)) {
-                Text("Hex (#3A7BD5)").tag(ColorOutputFormat.hex)
-                Text("RGB (rgb(58, 123, 213))").tag(ColorOutputFormat.rgb)
-                Text("HSL (hsl(217, 65%, 53%))").tag(ColorOutputFormat.hsl)
-            }
-            .pickerStyle(.radioGroup)
-
             Section {
+                Toggle("Show notifications", isOn: store.binding(\.general.notificationsEnabled))
+                Toggle(
+                    "Capture feedback (sound and flash)",
+                    isOn: store.binding(\.general.captureFeedbackEnabled)
+                )
+                Toggle(
+                    "Show capture overlay hints",
+                    isOn: store.binding(\.capture.showOverlayHints)
+                )
+                Toggle("Launch at login", isOn: Binding(
+                    get: { store.config.general.launchAtLogin },
+                    set: { enabled in
+                        store.update { $0.general.launchAtLogin = enabled }
+                        applyLaunchAtLogin(enabled)
+                    }
+                ))
+                Picker("Color picker copies", selection: store.binding(\.general.colorFormat)) {
+                    Text("Hex (#3A7BD5)").tag(ColorOutputFormat.hex)
+                    Text("RGB (rgb(58, 123, 213))").tag(ColorOutputFormat.rgb)
+                    Text("HSL (hsl(217, 65%, 53%))").tag(ColorOutputFormat.hsl)
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
                 Text(
                     "Privacy: macshot makes no network calls except uploads to "
                     + "destinations you configure. No telemetry, no analytics."
                 )
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func applyLaunchAtLogin(_ enabled: Bool) {
@@ -102,14 +125,14 @@ struct GeneralSettingsTab: View {
 
 /// What the app requires and whether macOS has granted it — the same list the
 /// setup wizard shows, so it stays reachable after the wizard is gone.
-struct PermissionsSettingsTab: View {
+struct PermissionsSettingsPane: View {
     var body: some View {
-        VStack(alignment: .leading) {
-            PermissionsList()
-            Spacer(minLength: 0)
+        Form {
+            Section {
+                PermissionsList()
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .formStyle(.grouped)
     }
 }
 
@@ -124,7 +147,7 @@ extension ConfigStore {
     }
 }
 
-struct HotkeysSettingsTab: View {
+struct HotkeysSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
@@ -304,41 +327,112 @@ struct HotkeyRecorder: View {
     }
 }
 
-// MARK: - Capture
+// MARK: - Saving
 
-struct CaptureSettingsTab: View {
+/// Where and how a capture is written: folder, format and quality, then the
+/// filename template.
+struct SavingSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
         Form {
-            HStack {
-                TextField("Save folder", text: store.binding(\.capture.saveDirectory))
-                Button("Choose…") { chooseFolder() }
-            }
-            Picker("Format", selection: store.binding(\.capture.format)) {
-                Text("PNG (lossless)").tag(ImageFormat.png)
-                Text("JPEG").tag(ImageFormat.jpeg)
-                Text("HEIC").tag(ImageFormat.heic)
-            }
-            if store.config.capture.format != .png {
+            Section {
                 HStack {
-                    Slider(
-                        value: Binding(
-                            get: { Double(store.config.capture.quality) },
-                            set: { value in store.update { $0.capture.quality = Int(value) } }
-                        ),
-                        in: 1...100,
-                        step: 1
-                    ) {
-                        Text("Quality")
+                    TextField("Save folder", text: store.binding(\.capture.saveDirectory))
+                    Button("Choose…") { chooseFolder() }
+                }
+                Picker("Format", selection: store.binding(\.capture.format)) {
+                    Text("PNG (lossless)").tag(ImageFormat.png)
+                    Text("JPEG").tag(ImageFormat.jpeg)
+                    Text("HEIC").tag(ImageFormat.heic)
+                }
+                if store.config.capture.format != .png {
+                    HStack {
+                        Slider(
+                            value: Binding(
+                                get: { Double(store.config.capture.quality) },
+                                set: { value in store.update { $0.capture.quality = Int(value) } }
+                            ),
+                            in: 1...100,
+                            step: 1
+                        ) {
+                            Text("Quality")
+                        }
+                        Text("\(store.config.capture.quality)")
+                            .monospacedDigit()
+                            .frame(width: 36, alignment: .trailing)
                     }
-                    Text("\(store.config.capture.quality)")
-                        .monospacedDigit()
-                        .frame(width: 36, alignment: .trailing)
                 }
             }
 
-            Section("Watermark") {
+            Section {
+                TextField("Template", text: store.binding(\.filenames.template))
+                    .font(.body.monospaced())
+                Stepper(
+                    "Counter padding: \(store.config.filenames.counterPadding) digits",
+                    value: store.binding(\.filenames.counterPadding),
+                    in: 1...10
+                )
+
+                let template = store.config.filenames.template
+                if FilenameTemplate.isValid(template) {
+                    LabeledContent("Preview") {
+                        Text(preview(of: template))
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label(
+                        "Template would produce an empty filename",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Filename")
+            } footer: {
+                Text(
+                    "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
+                    + "%window %app — snapped window, else the frontmost app\n"
+                    + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
+                )
+                .monospaced()
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func preview(of template: String) -> String {
+        var context = FilenameTemplate.Context()
+        context.windowTitle = "Project_Plan"
+        context.appName = "Safari"
+        context.counter = 42
+        context.counterPadding = store.config.filenames.counterPadding
+        return FilenameTemplate.expand(template, context: context)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = URL(
+            fileURLWithPath: (store.config.capture.saveDirectory as NSString).expandingTildeInPath
+        )
+        if panel.runModal() == .OK, let url = panel.url {
+            store.update { $0.capture.saveDirectory = url.path }
+        }
+    }
+}
+
+// MARK: - Watermark
+
+struct WatermarkSettingsPane: View {
+    @ObservedObject private var store = ConfigStore.shared
+
+    var body: some View {
+        Form {
+            Section {
                 Toggle("Add a watermark to every capture", isOn: store.binding(\.capture.watermark.enabled))
                 // Configuring a logo is deliberately not gated on the toggle:
                 // picking one first and switching it on after is the natural
@@ -347,6 +441,8 @@ struct CaptureSettingsTab: View {
                     TextField("Logo image", text: store.binding(\.capture.watermark.imagePath))
                     Button("Choose…") { chooseLogo() }
                 }
+            }
+            Section {
                 // Its placement is greyed out while it is off — but never the
                 // toggle that turns it back on.
                 Group {
@@ -359,16 +455,15 @@ struct CaptureSettingsTab: View {
                     percentSlider("Margin", \.capture.watermark.marginPercent, in: 0...40)
                     percentSlider("Opacity", \.capture.watermark.opacityPercent, in: 1...100)
                     WatermarkPreview(settings: store.config.capture.watermark)
-                    Text("Size and margin are percentages of the capture's width, so "
-                         + "one setting looks the same on a fullscreen shot and on a "
-                         + "small crop.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
                 }
                 .disabled(!store.config.capture.watermark.enabled)
+            } footer: {
+                Text("Size and margin are percentages of the capture's width, so "
+                     + "one setting looks the same on a fullscreen shot and on a "
+                     + "small crop.")
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     /// One row for each of the watermark's three percentages: slider, live
@@ -404,72 +499,6 @@ struct CaptureSettingsTab: View {
             store.update { $0.capture.watermark.imagePath = url.path }
         }
     }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = URL(
-            fileURLWithPath: (store.config.capture.saveDirectory as NSString).expandingTildeInPath
-        )
-        if panel.runModal() == .OK, let url = panel.url {
-            store.update { $0.capture.saveDirectory = url.path }
-        }
-    }
-}
-
-// MARK: - Filenames
-
-struct FilenamesSettingsTab: View {
-    @ObservedObject private var store = ConfigStore.shared
-
-    var body: some View {
-        Form {
-            TextField("Template", text: store.binding(\.filenames.template))
-                .font(.body.monospaced())
-            Stepper(
-                "Counter padding: \(store.config.filenames.counterPadding) digits",
-                value: store.binding(\.filenames.counterPadding),
-                in: 1...10
-            )
-
-            let template = store.config.filenames.template
-            if FilenameTemplate.isValid(template) {
-                LabeledContent("Preview") {
-                    Text(preview(of: template))
-                        .font(.body.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Label(
-                    "Template would produce an empty filename",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(.orange)
-            }
-
-            Section("Tokens") {
-                Text(
-                    "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
-                    + "%window %app — snapped window, else the frontmost app\n"
-                    + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
-                )
-                .font(.callout.monospaced())
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(20)
-    }
-
-    private func preview(of template: String) -> String {
-        var context = FilenameTemplate.Context()
-        context.windowTitle = "Project_Plan"
-        context.appName = "Safari"
-        context.counter = 42
-        context.counterPadding = store.config.filenames.counterPadding
-        return FilenameTemplate.expand(template, context: context)
-    }
 }
 
 // MARK: - Pipelines
@@ -477,7 +506,7 @@ struct FilenamesSettingsTab: View {
 /// Named pipelines on the left, the selected one's name and actions on the
 /// right — the same shape as the Destinations tab. The last pipeline cannot be
 /// removed: there is always one to run.
-struct PipelinesSettingsTab: View {
+struct PipelinesSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
     @State private var selectedID: UUID?
 
@@ -670,7 +699,7 @@ struct PipelineActionsEditor: View {
 
 // MARK: - Destinations
 
-struct DestinationsSettingsTab: View {
+struct DestinationsSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
     @State private var selectedID: UUID?
     @State private var importing = false
@@ -911,7 +940,7 @@ struct DestinationForm: View {
 
 // MARK: - Advanced
 
-struct AdvancedSettingsTab: View {
+struct AdvancedSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
     @State private var includeSecrets = false
     @State private var passphrase = ""
@@ -919,18 +948,20 @@ struct AdvancedSettingsTab: View {
 
     var body: some View {
         Form {
-            LabeledContent("Config file") {
-                Button("Open in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+            Section {
+                LabeledContent("Config file") {
+                    Button("Open in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+                    }
                 }
-            }
-            LabeledContent("Log file") {
-                Button("Open") {
-                    NSWorkspace.shared.open(Log.shared.logFileURL)
+                LabeledContent("Log file") {
+                    Button("Open") {
+                        NSWorkspace.shared.open(Log.shared.logFileURL)
+                    }
                 }
             }
 
-            Section("Export / import") {
+            Section {
                 Toggle("Include secrets (Keychain passwords and keys)", isOn: $includeSecrets)
                 SecureField("Passphrase (optional — encrypts the bundle)", text: $passphrase)
                 HStack {
@@ -942,20 +973,18 @@ struct AdvancedSettingsTab: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            }
-
-            Section {
+            } header: {
+                Text("Export / import")
+            } footer: {
                 Text(
                     "The config file is plain JSON and safe to edit by hand while "
                     + "macshot is not running. Secrets live in the Keychain under "
                     + "the service \"dev.macshot.app\" and are excluded from exports "
                     + "unless you opt in."
                 )
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func exportConfig() {

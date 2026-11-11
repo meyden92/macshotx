@@ -15,6 +15,9 @@ public struct MacshotApp: App {
         Settings {
             SettingsView()
         }
+        // The content fixes the width and sets a minimum height, so only the
+        // height can be dragged.
+        .windowResizability(.contentSize)
     }
 }
 
