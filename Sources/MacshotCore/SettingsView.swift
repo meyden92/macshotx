@@ -945,8 +945,28 @@ struct DestinationForm: View {
                         Text("JSON").tag("JSON")
                         Text("Form URL-encoded").tag("FormURLEncoded")
                     }
-                    TextField("File form name", text: field(\.custom.fileFormName))
-                    TextField("URL template", text: field(\.custom.urlTemplate))
+                    TextField(text: field(\.custom.fileFormName), prompt: Text("file")) {
+                        Text("File form name")
+                        // Live preview of the multipart part header the server receives.
+                        let preview = "name=\"\(destination.custom.fileFormName)\"; "
+                            + "filename=\"screenshot.png\""
+                        Text("""
+                            Form field the server reads the file from (multipart only). \
+                            Sent as \(Text(verbatim: preview).monospaced())
+                            """)
+                    }
+                    TextField(
+                        text: field(\.custom.urlTemplate), prompt: Text(verbatim: "{json:data.url}")
+                    ) {
+                        Text("URL template")
+                        Text("""
+                            Where the link is in the server's response. \
+                            \(Text(verbatim: "{json:data.url}").monospaced()) reads data.url \
+                            from a JSON reply, \(Text(verbatim: "{regex:0|1}").monospaced()) \
+                            uses the first regex from config.json. \
+                            Leave empty to use the whole response as the link.
+                            """)
+                    }
                 }
             } footer: {
                 switch destination.kind {
