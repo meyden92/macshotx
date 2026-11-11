@@ -19,70 +19,93 @@ extension ConfigStore {
 
 // MARK: - Root
 
+/// System Settings–style window: the sidebar lists `SettingsPane`s under their
+/// groups, the selected pane fills the detail column. Fixed width, resizable
+/// height, and it reopens on the pane that was shown last.
 struct SettingsView: View {
+    /// Raw value of the last-shown pane. UI state, not configuration, so it is
+    /// deliberately kept out of `AppConfig` and config exports.
+    @AppStorage("settings.lastPane") private var lastPane = SettingsPane.general.rawValue
+
     var body: some View {
-        TabView {
-            GeneralSettingsTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            PermissionsSettingsTab()
-                .tabItem { Label("Permissions", systemImage: "hand.raised") }
-            HotkeysSettingsTab()
-                .tabItem { Label("Hotkeys", systemImage: "keyboard") }
-            CaptureSettingsTab()
-                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
-            FilenamesSettingsTab()
-                .tabItem { Label("Filenames", systemImage: "textformat.abc") }
-            PipelinesSettingsTab()
-                .tabItem { Label("Pipelines", systemImage: "arrow.right.square") }
-            DestinationsSettingsTab()
-                .tabItem { Label("Destinations", systemImage: "icloud.and.arrow.up") }
-            AdvancedSettingsTab()
-                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+        let pane = SettingsPane(storedValue: lastPane)
+        NavigationSplitView {
+            List(selection: Binding(
+                get: { pane },
+                set: { selected in if let selected { lastPane = selected.rawValue } }
+            )) {
+                ForEach(SettingsPane.sidebar, id: \.group) { section in
+                    Section(section.group.title) {
+                        ForEach(section.panes) { pane in
+                            Label(pane.title, systemImage: pane.systemImage)
+                                .tag(pane)
+                        }
+                    }
+                }
+            }
+            .navigationSplitViewColumnWidth(190)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            detail(for: pane)
+                .navigationTitle(pane.title)
         }
-        .frame(width: 640)
+        .frame(width: 750)
+        .frame(minHeight: 500, idealHeight: 600)
+    }
+
+    @ViewBuilder
+    private func detail(for pane: SettingsPane) -> some View {
+        switch pane {
+        case .general: GeneralSettingsPane()
+        case .permissions: PermissionsSettingsPane()
+        case .hotkeys: HotkeysSettingsPane()
+        case .pipelines: PipelinesSettingsPane()
+        case .destinations: DestinationsSettingsPane()
+        case .saving: SavingSettingsPane()
+        case .watermark: WatermarkSettingsPane()
+        case .advanced: AdvancedSettingsPane()
+        }
     }
 }
 
 // MARK: - General
 
-struct GeneralSettingsTab: View {
+struct GeneralSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
         Form {
-            Toggle("Show notifications", isOn: store.binding(\.general.notificationsEnabled))
-            Toggle(
-                "Capture feedback (sound and flash)",
-                isOn: store.binding(\.general.captureFeedbackEnabled)
-            )
-            Toggle(
-                "Show capture overlay hints",
-                isOn: store.binding(\.capture.showOverlayHints)
-            )
-            Toggle("Launch at login", isOn: Binding(
-                get: { store.config.general.launchAtLogin },
-                set: { enabled in
-                    store.update { $0.general.launchAtLogin = enabled }
-                    applyLaunchAtLogin(enabled)
-                }
-            ))
-            Picker("Color picker copies", selection: store.binding(\.general.colorFormat)) {
-                Text("Hex (#3A7BD5)").tag(ColorOutputFormat.hex)
-                Text("RGB (rgb(58, 123, 213))").tag(ColorOutputFormat.rgb)
-                Text("HSL (hsl(217, 65%, 53%))").tag(ColorOutputFormat.hsl)
-            }
-            .pickerStyle(.radioGroup)
-
             Section {
+                Toggle("Show notifications", isOn: store.binding(\.general.notificationsEnabled))
+                Toggle(
+                    "Capture feedback (sound and flash)",
+                    isOn: store.binding(\.general.captureFeedbackEnabled)
+                )
+                Toggle(
+                    "Show capture overlay hints",
+                    isOn: store.binding(\.capture.showOverlayHints)
+                )
+                Toggle("Launch at login", isOn: Binding(
+                    get: { store.config.general.launchAtLogin },
+                    set: { enabled in
+                        store.update { $0.general.launchAtLogin = enabled }
+                        applyLaunchAtLogin(enabled)
+                    }
+                ))
+                Picker("Color picker copies", selection: store.binding(\.general.colorFormat)) {
+                    Text("Hex (#3A7BD5)").tag(ColorOutputFormat.hex)
+                    Text("RGB (rgb(58, 123, 213))").tag(ColorOutputFormat.rgb)
+                    Text("HSL (hsl(217, 65%, 53%))").tag(ColorOutputFormat.hsl)
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
                 Text(
                     "Privacy: macshot makes no network calls except uploads to "
                     + "destinations you configure. No telemetry, no analytics."
                 )
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func applyLaunchAtLogin(_ enabled: Bool) {
@@ -102,14 +125,14 @@ struct GeneralSettingsTab: View {
 
 /// What the app requires and whether macOS has granted it — the same list the
 /// setup wizard shows, so it stays reachable after the wizard is gone.
-struct PermissionsSettingsTab: View {
+struct PermissionsSettingsPane: View {
     var body: some View {
-        VStack(alignment: .leading) {
-            PermissionsList()
-            Spacer(minLength: 0)
+        Form {
+            Section {
+                PermissionsList()
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .formStyle(.grouped)
     }
 }
 
@@ -124,19 +147,41 @@ extension ConfigStore {
     }
 }
 
-struct HotkeysSettingsTab: View {
+struct HotkeysSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
         let hotkeys = store.config.hotkeys
         Form {
-            Section("Capture") {
+            Section {
                 ForEach(hotkeys.captures) { hotkey in
                     CaptureHotkeyRow(hotkey: hotkey, store: store)
                 }
-                Button("Add Capture Hotkey") { add() }
+                // The menu bar lists captures in this order, and re-registering
+                // through updateHotkeys keeps it in step without a restart.
+                .onMove { source, destination in
+                    store.updateHotkeys {
+                        $0.captures.move(fromOffsets: source, toOffset: destination)
+                    }
+                }
+            } header: {
+                Text("Capture")
+            } footer: {
+                HStack(alignment: .top) {
+                    Text(
+                        "Each capture hotkey opens the capture overlay and runs its pipeline. "
+                        + "Click a shortcut, then press the new key combination. Esc cancels. "
+                        + "Drag a row to reorder."
+                    )
+                    Spacer()
+                    Button { add() } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add capture hotkey")
+                }
             }
-            Section("Utilities") {
+            Section {
                 ForEach([HotkeyAction.colorPicker, .magnifier], id: \.self) { action in
                     HStack {
                         Text(hotkeys.label(for: action))
@@ -144,28 +189,25 @@ struct HotkeysSettingsTab: View {
                         HotkeyRecorder(action: action, store: store)
                     }
                 }
+            } header: {
+                Text("Utilities")
+            } footer: {
+                let conflicts = hotkeys.conflicts()
+                if !conflicts.isEmpty {
+                    Label(
+                        conflicts
+                            .map {
+                                "\(hotkeys.label(for: $0.0)) and \(hotkeys.label(for: $0.1)) "
+                                    + "share the same shortcut"
+                            }
+                            .joined(separator: "\n"),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
             }
-            let conflicts = hotkeys.conflicts()
-            if !conflicts.isEmpty {
-                Label(
-                    conflicts
-                        .map {
-                            "\(hotkeys.label(for: $0.0)) and \(hotkeys.label(for: $0.1)) "
-                                + "share the same shortcut"
-                        }
-                        .joined(separator: "\n"),
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(.orange)
-            }
-            Text(
-                "Each capture hotkey opens the capture overlay and runs its pipeline. "
-                + "Click a shortcut, then press the new key combination. Esc cancels."
-            )
-            .font(.callout)
-            .foregroundStyle(.secondary)
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func add() {
@@ -176,15 +218,13 @@ struct HotkeysSettingsTab: View {
     }
 }
 
-/// One capture entry: name, shortcut and pipeline, plus
-/// reorder and delete. Edits go by id, so a row never writes to a stale index.
+/// One capture entry on a single row: name, shortcut, pipeline and delete.
+/// Edits go by id, so a row never writes to a stale index.
 struct CaptureHotkeyRow: View {
     let hotkey: CaptureHotkey
     @ObservedObject var store: ConfigStore
 
     var body: some View {
-        let captures = store.config.hotkeys.captures
-        let index = captures.firstIndex { $0.id == hotkey.id } ?? 0
         let pipelines = store.config.pipelines
         let dangling = !pipelines.contains { $0.id == hotkey.pipelineID }
         VStack(alignment: .leading, spacing: 6) {
@@ -195,35 +235,26 @@ struct CaptureHotkeyRow: View {
                 ))
                 .labelsHidden()
                 HotkeyRecorder(action: .capture(hotkey.id), store: store)
-                Button {
-                    store.updateHotkeys { $0.captures.swapAt(index, index - 1) }
-                } label: {
-                    Image(systemName: "chevron.up")
+                Picker("Pipeline", selection: Binding(
+                    get: { hotkey.pipelineID },
+                    set: { id in edit { $0.pipelineID = id } }
+                )) {
+                    ForEach(pipelines) { pipeline in
+                        Text(pipeline.name).tag(pipeline.id)
+                    }
+                    if dangling {
+                        Text("— deleted —").tag(hotkey.pipelineID)
+                    }
                 }
-                .disabled(index == 0)
-                Button {
-                    store.updateHotkeys { $0.captures.swapAt(index, index + 1) }
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .disabled(index == captures.count - 1)
+                .labelsHidden()
+                .frame(maxWidth: 160)
                 Button {
                     store.updateHotkeys { $0.captures.removeAll { $0.id == hotkey.id } }
                 } label: {
                     Image(systemName: "trash")
                 }
-            }
-            .buttonStyle(.borderless)
-            Picker("Pipeline", selection: Binding(
-                get: { hotkey.pipelineID },
-                set: { id in edit { $0.pipelineID = id } }
-            )) {
-                ForEach(pipelines) { pipeline in
-                    Text(pipeline.name).tag(pipeline.id)
-                }
-                if dangling {
-                    Text("— deleted —").tag(hotkey.pipelineID)
-                }
+                .buttonStyle(.borderless)
+                .help("Delete capture hotkey")
             }
             if dangling {
                 Label(
@@ -233,7 +264,6 @@ struct CaptureHotkeyRow: View {
                 .foregroundStyle(.orange)
             }
         }
-        .padding(.vertical, 4)
     }
 
     private func edit(_ mutate: (inout CaptureHotkey) -> Void) {
@@ -304,41 +334,112 @@ struct HotkeyRecorder: View {
     }
 }
 
-// MARK: - Capture
+// MARK: - Saving
 
-struct CaptureSettingsTab: View {
+/// Where and how a capture is written: folder, format and quality, then the
+/// filename template.
+struct SavingSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
 
     var body: some View {
         Form {
-            HStack {
-                TextField("Save folder", text: store.binding(\.capture.saveDirectory))
-                Button("Choose…") { chooseFolder() }
-            }
-            Picker("Format", selection: store.binding(\.capture.format)) {
-                Text("PNG (lossless)").tag(ImageFormat.png)
-                Text("JPEG").tag(ImageFormat.jpeg)
-                Text("HEIC").tag(ImageFormat.heic)
-            }
-            if store.config.capture.format != .png {
+            Section {
                 HStack {
-                    Slider(
-                        value: Binding(
-                            get: { Double(store.config.capture.quality) },
-                            set: { value in store.update { $0.capture.quality = Int(value) } }
-                        ),
-                        in: 1...100,
-                        step: 1
-                    ) {
-                        Text("Quality")
+                    TextField("Save folder", text: store.binding(\.capture.saveDirectory))
+                    Button("Choose…") { chooseFolder() }
+                }
+                Picker("Format", selection: store.binding(\.capture.format)) {
+                    Text("PNG (lossless)").tag(ImageFormat.png)
+                    Text("JPEG").tag(ImageFormat.jpeg)
+                    Text("HEIC").tag(ImageFormat.heic)
+                }
+                if store.config.capture.format != .png {
+                    HStack {
+                        Slider(
+                            value: Binding(
+                                get: { Double(store.config.capture.quality) },
+                                set: { value in store.update { $0.capture.quality = Int(value) } }
+                            ),
+                            in: 1...100,
+                            step: 1
+                        ) {
+                            Text("Quality")
+                        }
+                        Text("\(store.config.capture.quality)")
+                            .monospacedDigit()
+                            .frame(width: 36, alignment: .trailing)
                     }
-                    Text("\(store.config.capture.quality)")
-                        .monospacedDigit()
-                        .frame(width: 36, alignment: .trailing)
                 }
             }
 
-            Section("Watermark") {
+            Section {
+                TextField("Template", text: store.binding(\.filenames.template))
+                    .font(.body.monospaced())
+                Stepper(
+                    "Counter padding: \(store.config.filenames.counterPadding) digits",
+                    value: store.binding(\.filenames.counterPadding),
+                    in: 1...10
+                )
+
+                let template = store.config.filenames.template
+                if FilenameTemplate.isValid(template) {
+                    LabeledContent("Preview") {
+                        Text(preview(of: template))
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label(
+                        "Template would produce an empty filename",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Filename")
+            } footer: {
+                Text(
+                    "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
+                    + "%window %app — snapped window, else the frontmost app\n"
+                    + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
+                )
+                .monospaced()
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func preview(of template: String) -> String {
+        var context = FilenameTemplate.Context()
+        context.windowTitle = "Project_Plan"
+        context.appName = "Safari"
+        context.counter = 42
+        context.counterPadding = store.config.filenames.counterPadding
+        return FilenameTemplate.expand(template, context: context)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = URL(
+            fileURLWithPath: (store.config.capture.saveDirectory as NSString).expandingTildeInPath
+        )
+        if panel.runModal() == .OK, let url = panel.url {
+            store.update { $0.capture.saveDirectory = url.path }
+        }
+    }
+}
+
+// MARK: - Watermark
+
+struct WatermarkSettingsPane: View {
+    @ObservedObject private var store = ConfigStore.shared
+
+    var body: some View {
+        Form {
+            Section {
                 Toggle("Add a watermark to every capture", isOn: store.binding(\.capture.watermark.enabled))
                 // Configuring a logo is deliberately not gated on the toggle:
                 // picking one first and switching it on after is the natural
@@ -347,6 +448,8 @@ struct CaptureSettingsTab: View {
                     TextField("Logo image", text: store.binding(\.capture.watermark.imagePath))
                     Button("Choose…") { chooseLogo() }
                 }
+            }
+            Section {
                 // Its placement is greyed out while it is off — but never the
                 // toggle that turns it back on.
                 Group {
@@ -359,16 +462,15 @@ struct CaptureSettingsTab: View {
                     percentSlider("Margin", \.capture.watermark.marginPercent, in: 0...40)
                     percentSlider("Opacity", \.capture.watermark.opacityPercent, in: 1...100)
                     WatermarkPreview(settings: store.config.capture.watermark)
-                    Text("Size and margin are percentages of the capture's width, so "
-                         + "one setting looks the same on a fullscreen shot and on a "
-                         + "small crop.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
                 }
                 .disabled(!store.config.capture.watermark.enabled)
+            } footer: {
+                Text("Size and margin are percentages of the capture's width, so "
+                     + "one setting looks the same on a fullscreen shot and on a "
+                     + "small crop.")
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     /// One row for each of the watermark's three percentages: slider, live
@@ -404,170 +506,160 @@ struct CaptureSettingsTab: View {
             store.update { $0.capture.watermark.imagePath = url.path }
         }
     }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = URL(
-            fileURLWithPath: (store.config.capture.saveDirectory as NSString).expandingTildeInPath
-        )
-        if panel.runModal() == .OK, let url = panel.url {
-            store.update { $0.capture.saveDirectory = url.path }
-        }
-    }
 }
 
-// MARK: - Filenames
+// MARK: - Drill-down helpers
 
-struct FilenamesSettingsTab: View {
-    @ObservedObject private var store = ConfigStore.shared
-
-    var body: some View {
-        Form {
-            TextField("Template", text: store.binding(\.filenames.template))
-                .font(.body.monospaced())
-            Stepper(
-                "Counter padding: \(store.config.filenames.counterPadding) digits",
-                value: store.binding(\.filenames.counterPadding),
-                in: 1...10
-            )
-
-            let template = store.config.filenames.template
-            if FilenameTemplate.isValid(template) {
-                LabeledContent("Preview") {
-                    Text(preview(of: template))
-                        .font(.body.monospaced())
-                        .foregroundStyle(.secondary)
+extension ConfigStore {
+    /// Binding to one field of an entry in a config list (pipelines,
+    /// destinations). The entry is looked up by id on every read and write, so
+    /// a reorder or delete never makes an open editor edit a different entry.
+    /// Reads fall back to `entry`'s value once it is gone.
+    func binding<Entry: Identifiable & Sendable, T: Sendable>(
+        _ list: WritableKeyPath<AppConfig, [Entry]> & Sendable,
+        _ entry: Entry,
+        _ field: WritableKeyPath<Entry, T> & Sendable
+    ) -> Binding<T> where Entry.ID: Sendable {
+        let id = entry.id
+        let fallback = entry[keyPath: field]
+        return Binding(
+            get: {
+                MainActor.assumeIsolated {
+                    self.config[keyPath: list].first { $0.id == id }?[keyPath: field] ?? fallback
                 }
-            } else {
-                Label(
-                    "Template would produce an empty filename",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(.orange)
+            },
+            set: { value in
+                MainActor.assumeIsolated {
+                    self.update { config in
+                        guard let index = config[keyPath: list].firstIndex(where: { $0.id == id })
+                        else { return }
+                        config[keyPath: list][index][keyPath: field] = value
+                    }
+                }
             }
-
-            Section("Tokens") {
-                Text(
-                    "%y %mo %d — date · %h %mi %s %ms — time · %counter — per-folder counter\n"
-                    + "%window %app — snapped window, else the frontmost app\n"
-                    + "%host %user — machine/user · %uuid — UUID · %rand:N — random characters"
-                )
-                .font(.callout.monospaced())
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(20)
+        )
     }
 
-    private func preview(of template: String) -> String {
-        var context = FilenameTemplate.Context()
-        context.windowTitle = "Project_Plan"
-        context.appName = "Safari"
-        context.counter = 42
-        context.counterPadding = store.config.filenames.counterPadding
-        return FilenameTemplate.expand(template, context: context)
+    /// Removes a pipeline unless it is the last one: there is always one to run.
+    func deletePipeline(_ id: UUID) {
+        guard config.pipelines.count > 1 else { return }
+        update { $0.pipelines.removeAll { $0.id == id } }
+    }
+
+    /// Removes a destination together with its Keychain secrets, so no
+    /// credentials are left behind.
+    func deleteDestination(_ id: UUID) {
+        Keychain.delete(account: Keychain.secretAccount(for: id, field: "secretKey"))
+        Keychain.delete(account: Keychain.secretAccount(for: id, field: "password"))
+        update { $0.destinations.removeAll { $0.id == id } }
     }
 }
 
 // MARK: - Pipelines
 
-/// Named pipelines on the left, the selected one's name and actions on the
-/// right — the same shape as the Destinations tab. The last pipeline cannot be
-/// removed: there is always one to run.
-struct PipelinesSettingsTab: View {
+/// Named pipelines as rows; clicking one pushes its editor into the same
+/// column. Navigation goes by id, never by index. The last pipeline cannot be
+/// deleted: there is always one to run.
+struct PipelinesSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
-    @State private var selectedID: UUID?
+    @State private var path: [UUID] = []
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                List(selection: $selectedID) {
+        NavigationStack(path: $path) {
+            Form {
+                Section {
                     ForEach(store.config.pipelines) { pipeline in
-                        VStack(alignment: .leading) {
-                            Text(pipeline.name.isEmpty ? "(unnamed)" : pipeline.name)
-                            Text(pipeline.actions.count == 1
-                                ? "1 action" : "\(pipeline.actions.count) actions")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .tag(pipeline.id)
-                    }
-                }
-                .frame(width: 200)
-                Divider()
-                if let index = selectedIndex {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            TextField("Name", text: store.binding(\.pipelines[index].name))
-                            GroupBox("Actions") {
-                                PipelineActionsEditor(
-                                    actions: store.binding(\.pipelines[index].actions)
-                                )
+                        NavigationLink(value: pipeline.id) {
+                            VStack(alignment: .leading) {
+                                Text(pipeline.name.isEmpty ? "(unnamed)" : pipeline.name)
+                                Text(pipeline.actions.count == 1
+                                    ? "1 action" : "\(pipeline.actions.count) actions")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            Text(
-                                "Actions run top to bottom. Each capture hotkey picks the "
-                                + "pipeline it runs in Settings → Hotkeys. If an action fails, "
-                                + "the pipeline stops and shows a notification with a Retry "
-                                + "option."
-                            )
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
                         }
-                        .padding(20)
+                        .contextMenu {
+                            Button("Duplicate") { duplicate(pipeline.id) }
+                            Button("Delete", role: .destructive) {
+                                store.deletePipeline(pipeline.id)
+                            }
+                            .disabled(store.config.pipelines.count <= 1)
+                        }
                     }
-                } else {
-                    VStack {
-                        Text("Select or add a pipeline")
-                            .foregroundStyle(.secondary)
+                } footer: {
+                    HStack {
+                        Spacer()
+                        Button { add() } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add pipeline")
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            Divider()
-            HStack {
-                Button("Add") { add() }
-                Button("Duplicate") { duplicateSelected() }
-                    .disabled(selectedIndex == nil)
-                Button("Remove") { removeSelected() }
-                    .disabled(selectedIndex == nil || store.config.pipelines.count <= 1)
-                Spacer()
+            .formStyle(.grouped)
+            .navigationDestination(for: UUID.self) { id in
+                PipelineEditor(id: id, store: store)
             }
-            .padding(10)
         }
-        .frame(height: 460)
-        .onAppear {
-            if selectedIndex == nil { selectedID = store.config.pipelines.first?.id }
-        }
-    }
-
-    private var selectedIndex: Int? {
-        guard let selectedID else { return nil }
-        return store.config.pipelines.firstIndex { $0.id == selectedID }
     }
 
     private func add() {
         var pipeline = Pipeline()
         pipeline.name = "New pipeline"
         store.update { $0.pipelines.append(pipeline) }
-        selectedID = pipeline.id
+        path.append(pipeline.id)
     }
 
-    private func duplicateSelected() {
-        guard let index = selectedIndex else { return }
+    private func duplicate(_ id: UUID) {
+        guard let index = store.config.pipelines.firstIndex(where: { $0.id == id }) else { return }
         var copy = store.config.pipelines[index]
         copy.id = UUID()
         copy.name += " copy"
         store.update { $0.pipelines.insert(copy, at: index + 1) }
-        selectedID = copy.id
+        path.append(copy.id)
     }
+}
 
-    private func removeSelected() {
-        guard let index = selectedIndex, store.config.pipelines.count > 1 else { return }
-        store.update { $0.pipelines.remove(at: index) }
-        selectedID = store.config.pipelines[min(index, store.config.pipelines.count - 1)].id
+/// One pipeline's name and actions at full width. Pops back to the list once
+/// the pipeline no longer exists, which is also how "Delete Pipeline" returns.
+struct PipelineEditor: View {
+    let id: UUID
+    @ObservedObject var store: ConfigStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        if let pipeline = store.config.pipelines.first(where: { $0.id == id }) {
+            Form {
+                Section {
+                    TextField("Name", text: store.binding(\.pipelines, pipeline, \.name))
+                }
+                Section {
+                    PipelineActionsEditor(
+                        actions: store.binding(\.pipelines, pipeline, \.actions)
+                    )
+                } header: {
+                    Text("Actions")
+                } footer: {
+                    Text(
+                        "Actions run top to bottom. Each capture hotkey picks the "
+                        + "pipeline it runs in Settings → Hotkeys. If an action fails, "
+                        + "the pipeline stops and shows a notification with a Retry "
+                        + "option."
+                    )
+                }
+                Section {
+                    Button("Delete Pipeline", role: .destructive) {
+                        store.deletePipeline(id)
+                    }
+                    .disabled(store.config.pipelines.count <= 1)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(pipeline.name.isEmpty ? "(unnamed)" : pipeline.name)
+        } else {
+            Color.clear.onAppear { dismiss() }
+        }
     }
 }
 
@@ -620,7 +712,6 @@ struct PipelineActionsEditor: View {
             }
             .frame(maxWidth: 180)
         }
-        .padding(6)
     }
 
     @ViewBuilder
@@ -670,62 +761,67 @@ struct PipelineActionsEditor: View {
 
 // MARK: - Destinations
 
-struct DestinationsSettingsTab: View {
+/// Destinations as rows; clicking one pushes its form into the same column,
+/// the same shape as the Pipelines pane.
+struct DestinationsSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
-    @State private var selectedID: UUID?
+    @State private var path: [UUID] = []
     @State private var importing = false
     @State private var importError: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                List(selection: $selectedID) {
+        NavigationStack(path: $path) {
+            Form {
+                Section {
                     ForEach(store.config.destinations) { destination in
-                        VStack(alignment: .leading) {
-                            Text(destination.name.isEmpty ? "(unnamed)" : destination.name)
-                            Text(kindLabel(destination.kind))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        NavigationLink(value: destination.id) {
+                            VStack(alignment: .leading) {
+                                Text(destination.name.isEmpty ? "(unnamed)" : destination.name)
+                                Text(kindLabel(destination.kind))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        .tag(destination.id)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                store.deleteDestination(destination.id)
+                            }
+                        }
                     }
-                }
-                .frame(width: 200)
-                Divider()
-                if let index = selectedIndex {
-                    DestinationForm(store: store, index: index)
-                } else {
-                    VStack {
-                        Text("Select or add a destination")
+                    if store.config.destinations.isEmpty {
+                        Text("No destinations yet")
                             .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } footer: {
+                    HStack(alignment: .top) {
+                        if let importError {
+                            Text(importError)
+                                .foregroundStyle(.red)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("S3-compatible") { add(.s3) }
+                            Button("SFTP") { add(.sftp) }
+                            Button("FTP") { add(.ftp) }
+                            Button("WebDAV") { add(.webdav) }
+                            Button("Custom HTTP (ShareX)") { add(.customHTTP) }
+                            Divider()
+                            Button("Import ShareX .sxcu…") { importing = true }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Add destination")
+                    }
                 }
             }
-            Divider()
-            HStack {
-                Menu("Add") {
-                    Button("S3-compatible") { add(.s3) }
-                    Button("SFTP") { add(.sftp) }
-                    Button("FTP") { add(.ftp) }
-                    Button("WebDAV") { add(.webdav) }
-                    Button("Custom HTTP (ShareX)") { add(.customHTTP) }
-                    Divider()
-                    Button("Import ShareX .sxcu…") { importing = true }
-                }
-                .frame(width: 90)
-                Button("Remove") { removeSelected() }
-                    .disabled(selectedIndex == nil)
-                Spacer()
-                if let importError {
-                    Text(importError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+            .formStyle(.grouped)
+            .navigationDestination(for: UUID.self) { id in
+                DestinationForm(store: store, id: id)
             }
-            .padding(10)
         }
-        .frame(height: 460)
         .fileImporter(
             isPresented: $importing,
             allowedContentTypes: sxcuTypes,
@@ -743,11 +839,6 @@ struct DestinationsSettingsTab: View {
         return types
     }
 
-    private var selectedIndex: Int? {
-        guard let selectedID else { return nil }
-        return store.config.destinations.firstIndex { $0.id == selectedID }
-    }
-
     private func kindLabel(_ kind: DestinationKind) -> String {
         switch kind {
         case .s3: return "S3-compatible"
@@ -763,16 +854,7 @@ struct DestinationsSettingsTab: View {
         destination.kind = kind
         destination.name = "New \(kindLabel(kind))"
         store.update { $0.destinations.append(destination) }
-        selectedID = destination.id
-    }
-
-    private func removeSelected() {
-        guard let index = selectedIndex else { return }
-        let destination = store.config.destinations[index]
-        Keychain.delete(account: Keychain.secretAccount(for: destination.id, field: "secretKey"))
-        Keychain.delete(account: Keychain.secretAccount(for: destination.id, field: "password"))
-        store.update { $0.destinations.remove(at: index) }
-        selectedID = nil
+        path.append(destination.id)
     }
 
     private func importSxcu(_ result: Result<[URL], Error>) {
@@ -784,7 +866,7 @@ struct DestinationsSettingsTab: View {
             let data = try Data(contentsOf: url)
             let destination = try SxcuImporter.parse(data)
             store.update { $0.destinations.append(destination) }
-            selectedID = destination.id
+            path.append(destination.id)
         } catch {
             importError = (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription
@@ -792,95 +874,103 @@ struct DestinationsSettingsTab: View {
     }
 }
 
+/// One destination's settings at full width, bound by id. Pops back to the
+/// list once the destination no longer exists, which is also how "Delete
+/// Destination" returns.
 struct DestinationForm: View {
     @ObservedObject var store: ConfigStore
-    let index: Int
+    let id: UUID
+    @Environment(\.dismiss) private var dismiss
     @State private var secret = ""
     @State private var secretLoadedFor: UUID?
 
-    private var destination: Destination {
-        store.config.destinations[index]
+    var body: some View {
+        if let destination = store.config.destinations.first(where: { $0.id == id }) {
+            form(destination)
+                .onAppear { loadSecret(destination) }
+                .onChange(of: id) { loadSecret(destination) }
+        } else {
+            Color.clear.onAppear { dismiss() }
+        }
     }
 
-    private func field<T: Sendable>(
-        _ keyPath: WritableKeyPath<Destination, T> & Sendable
-    ) -> Binding<T> {
-        Binding(
-            get: {
-                MainActor.assumeIsolated { store.config.destinations[index][keyPath: keyPath] }
-            },
-            set: { value in
-                MainActor.assumeIsolated {
-                    store.update { $0.destinations[index][keyPath: keyPath] = value }
+    private func form(_ destination: Destination) -> some View {
+        func field<T: Sendable>(
+            _ keyPath: WritableKeyPath<Destination, T> & Sendable
+        ) -> Binding<T> {
+            store.binding(\.destinations, destination, keyPath)
+        }
+        return Form {
+            Section {
+                TextField("Name", text: field(\.name))
+                switch destination.kind {
+                case .s3:
+                    TextField("Endpoint URL", text: field(\.s3.endpoint))
+                    TextField("Region", text: field(\.s3.region))
+                    TextField("Bucket", text: field(\.s3.bucket))
+                    TextField("Access key", text: field(\.s3.accessKey))
+                    secretField("Secret key", field: "secretKey")
+                    TextField("Path prefix (optional)", text: field(\.s3.pathPrefix))
+                    Toggle("Public-read ACL", isOn: field(\.s3.publicReadACL))
+                    Toggle("Server-side encryption", isOn: field(\.s3.serverSideEncryption))
+                    TextField(
+                        "Public URL template ({key})", text: field(\.s3.publicURLTemplate)
+                    )
+                case .sftp, .ftp, .webdav:
+                    TextField(
+                        destination.kind == .webdav ? "Base URL" : "Host",
+                        text: field(\.server.host)
+                    )
+                    TextField("Port (0 = default)", value: field(\.server.port), format: .number)
+                    TextField("Username", text: field(\.server.username))
+                    if destination.kind == .sftp {
+                        TextField("SSH key path", text: field(\.server.sshKeyPath))
+                    } else {
+                        secretField("Password", field: "password")
+                    }
+                    TextField("Remote directory", text: field(\.server.remoteDirectory))
+                    TextField(
+                        "Public URL template ({filename} or {path})",
+                        text: field(\.server.publicURLTemplate)
+                    )
+                case .customHTTP:
+                    TextField("Request URL", text: field(\.custom.requestURL))
+                    Picker("Method", selection: field(\.custom.requestMethod)) {
+                        Text("POST").tag("POST")
+                        Text("PUT").tag("PUT")
+                    }
+                    Picker("Body", selection: field(\.custom.bodyType)) {
+                        Text("Multipart form data").tag("MultipartFormData")
+                        Text("Binary").tag("Binary")
+                        Text("JSON").tag("JSON")
+                        Text("Form URL-encoded").tag("FormURLEncoded")
+                    }
+                    TextField("File form name", text: field(\.custom.fileFormName))
+                    TextField("URL template", text: field(\.custom.urlTemplate))
+                }
+            } footer: {
+                switch destination.kind {
+                case .s3, .ftp, .webdav:
+                    Text("Secrets are stored in the macOS Keychain, never in config.json.")
+                case .sftp:
+                    Text("SFTP uses SSH key authentication in v1.")
+                case .customHTTP:
+                    Text(
+                        "Headers, parameters and arguments are editable in config.json "
+                        + "or imported from a ShareX .sxcu file."
+                    )
                 }
             }
-        )
-    }
-
-    var body: some View {
-        Form {
-            TextField("Name", text: field(\.name))
-            switch destination.kind {
-            case .s3:
-                TextField("Endpoint URL", text: field(\.s3.endpoint))
-                TextField("Region", text: field(\.s3.region))
-                TextField("Bucket", text: field(\.s3.bucket))
-                TextField("Access key", text: field(\.s3.accessKey))
-                secretField("Secret key", field: "secretKey")
-                TextField("Path prefix (optional)", text: field(\.s3.pathPrefix))
-                Toggle("Public-read ACL", isOn: field(\.s3.publicReadACL))
-                Toggle("Server-side encryption", isOn: field(\.s3.serverSideEncryption))
-                TextField(
-                    "Public URL template ({key})", text: field(\.s3.publicURLTemplate)
-                )
-            case .sftp, .ftp, .webdav:
-                TextField(
-                    destination.kind == .webdav ? "Base URL" : "Host",
-                    text: field(\.server.host)
-                )
-                TextField("Port (0 = default)", value: field(\.server.port), format: .number)
-                TextField("Username", text: field(\.server.username))
-                if destination.kind == .sftp {
-                    TextField("SSH key path", text: field(\.server.sshKeyPath))
-                    Text("SFTP uses SSH key authentication in v1.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    secretField("Password", field: "password")
+            Section {
+                Button("Delete Destination", role: .destructive) {
+                    store.deleteDestination(id)
                 }
-                TextField("Remote directory", text: field(\.server.remoteDirectory))
-                TextField(
-                    "Public URL template ({filename} or {path})",
-                    text: field(\.server.publicURLTemplate)
-                )
-            case .customHTTP:
-                TextField("Request URL", text: field(\.custom.requestURL))
-                Picker("Method", selection: field(\.custom.requestMethod)) {
-                    Text("POST").tag("POST")
-                    Text("PUT").tag("PUT")
-                }
-                Picker("Body", selection: field(\.custom.bodyType)) {
-                    Text("Multipart form data").tag("MultipartFormData")
-                    Text("Binary").tag("Binary")
-                    Text("JSON").tag("JSON")
-                    Text("Form URL-encoded").tag("FormURLEncoded")
-                }
-                TextField("File form name", text: field(\.custom.fileFormName))
-                TextField("URL template", text: field(\.custom.urlTemplate))
-                Text(
-                    "Headers, parameters and arguments are editable in config.json "
-                    + "or imported from a ShareX .sxcu file."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(16)
-        .onAppear { loadSecret() }
-        .onChange(of: destination.id) { loadSecret() }
+        .formStyle(.grouped)
+        .navigationTitle(destination.name.isEmpty ? "(unnamed)" : destination.name)
     }
 
-    @ViewBuilder
     private func secretField(_ label: String, field: String) -> some View {
         SecureField(label, text: Binding(
             get: { MainActor.assumeIsolated { secret } },
@@ -889,17 +979,14 @@ struct DestinationForm: View {
                     secret = value
                     Keychain.set(
                         value,
-                        account: Keychain.secretAccount(for: destination.id, field: field)
+                        account: Keychain.secretAccount(for: id, field: field)
                     )
                 }
             }
         ))
-        Text("Stored in the macOS Keychain, never in config.json.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
     }
 
-    private func loadSecret() {
+    private func loadSecret(_ destination: Destination) {
         guard secretLoadedFor != destination.id else { return }
         secretLoadedFor = destination.id
         let field = destination.kind == .s3 ? "secretKey" : "password"
@@ -911,7 +998,7 @@ struct DestinationForm: View {
 
 // MARK: - Advanced
 
-struct AdvancedSettingsTab: View {
+struct AdvancedSettingsPane: View {
     @ObservedObject private var store = ConfigStore.shared
     @State private var includeSecrets = false
     @State private var passphrase = ""
@@ -919,18 +1006,20 @@ struct AdvancedSettingsTab: View {
 
     var body: some View {
         Form {
-            LabeledContent("Config file") {
-                Button("Open in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+            Section {
+                LabeledContent("Config file") {
+                    Button("Open in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([store.configURL])
+                    }
                 }
-            }
-            LabeledContent("Log file") {
-                Button("Open") {
-                    NSWorkspace.shared.open(Log.shared.logFileURL)
+                LabeledContent("Log file") {
+                    Button("Open") {
+                        NSWorkspace.shared.open(Log.shared.logFileURL)
+                    }
                 }
             }
 
-            Section("Export / import") {
+            Section {
                 Toggle("Include secrets (Keychain passwords and keys)", isOn: $includeSecrets)
                 SecureField("Passphrase (optional — encrypts the bundle)", text: $passphrase)
                 HStack {
@@ -942,20 +1031,18 @@ struct AdvancedSettingsTab: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            }
-
-            Section {
+            } header: {
+                Text("Export / import")
+            } footer: {
                 Text(
                     "The config file is plain JSON and safe to edit by hand while "
                     + "macshot is not running. Secrets live in the Keychain under "
                     + "the service \"dev.macshot.app\" and are excluded from exports "
                     + "unless you opt in."
                 )
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .formStyle(.grouped)
     }
 
     private func exportConfig() {
